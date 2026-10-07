@@ -49,15 +49,20 @@ fn churn(seed: usize) {
     }
 }
 
-/// What a child does: allocate in every size range, then exit
-fn child_work() -> ! {
+/// What a child does: allocate in every size range, then exit. `dump`
+/// also writes a profile, which loads the symbol tables: slow, so only
+/// some children do.
+fn child_work(dump: bool) -> ! {
     let mut v: Vec<Vec<u8>> = (0..2000).map(|i| vec![2u8; 16 + i * 37 % 5000]).collect();
     v.push(vec![3u8; 300_000]);
     v.push(vec![4u8; 3 << 20]);
-    let ok = v.iter().all(|b| b.iter().all(|&x| x == b[0]));
+    // Bytes spread over each block: memory handed out twice differs there
+    let ok = v
+        .iter()
+        .all(|b| b.iter().step_by(61).chain(b.last()).all(|&x| x == b[0]));
     drop(v);
     stoolap_jemalloc::purge();
-    let ok = ok && prof::dump_pprof().is_ok();
+    let ok = ok && (!dump || prof::dump_pprof().is_ok());
     // The parent's background thread did not come along
     let ok = ok && !background::is_running();
     unsafe { libc::_exit(i32::from(!ok)) }
@@ -70,11 +75,15 @@ fn fork_while_other_threads_allocate() {
     // Forks also happen while it holds the decay lock
     background::start();
     let workers: Vec<_> = (0..4).map(|t| thread::spawn(move || churn(t))).collect();
-    for round in 0..200 {
+    // At least 20 forks, then until 3 seconds or 200 forks: without the
+    // fork handlers, the first few children already fail
+    let start = Instant::now();
+    let mut round = 0;
+    while round < 20 || (round < 200 && start.elapsed() < Duration::from_secs(3)) {
         let pid = unsafe { libc::fork() };
         assert!(pid >= 0, "fork failed");
         if pid == 0 {
-            child_work();
+            child_work(round % 10 == 0);
         }
         // A child that does not exit within the deadline is stuck on a lock
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -96,6 +105,7 @@ fn fork_while_other_threads_allocate() {
             libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0,
             "child {round} failed: {status}"
         );
+        round += 1;
     }
     STOP.store(true, Ordering::Relaxed);
     for w in workers {
