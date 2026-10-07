@@ -16,10 +16,10 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
-static CHUNKS: AtomicUsize = AtomicUsize::new(0);
-static HUGE: AtomicUsize = AtomicUsize::new(0);
-static HUGE_CACHED: AtomicUsize = AtomicUsize::new(0);
-static METADATA: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static CHUNK_BYTES: Counter = Counter::new();
+pub(crate) static HUGE_BYTES: Counter = Counter::new();
+pub(crate) static HUGE_CACHED_BYTES: Counter = Counter::new();
+pub(crate) static METADATA_BYTES: Counter = Counter::new();
 
 /// Memory the allocator holds from the OS, in bytes
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -45,18 +45,26 @@ impl Stats {
 /// A snapshot of the allocator's counters
 pub fn stats() -> Stats {
     Stats {
-        chunks: CHUNKS.load(Relaxed),
-        huge: HUGE.load(Relaxed),
-        huge_cached: HUGE_CACHED.load(Relaxed),
-        metadata: METADATA.load(Relaxed),
+        chunks: CHUNK_BYTES.get(),
+        huge: HUGE_BYTES.get(),
+        huge_cached: HUGE_CACHED_BYTES.get(),
+        metadata: METADATA_BYTES.get(),
     }
 }
 
 /// A counter of bytes. Additions and subtractions are separate so that no
 /// size needs a sign: on 32-bit targets a mapping can exceed `isize::MAX`.
-pub(crate) struct Counter(&'static AtomicUsize);
+pub(crate) struct Counter(AtomicUsize);
 
 impl Counter {
+    const fn new() -> Self {
+        Counter(AtomicUsize::new(0))
+    }
+
+    fn get(&self) -> usize {
+        self.0.load(Relaxed)
+    }
+
     pub(crate) fn add(&self, n: usize) {
         self.0.fetch_add(n, Relaxed);
     }
@@ -65,8 +73,3 @@ impl Counter {
         self.0.fetch_sub(n, Relaxed);
     }
 }
-
-pub(crate) const CHUNK_BYTES: Counter = Counter(&CHUNKS);
-pub(crate) const HUGE_BYTES: Counter = Counter(&HUGE);
-pub(crate) const HUGE_CACHED_BYTES: Counter = Counter(&HUGE_CACHED);
-pub(crate) const METADATA_BYTES: Counter = Counter(&METADATA);
