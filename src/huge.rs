@@ -75,7 +75,7 @@ pub unsafe fn alloc(size: usize, align: usize, zero: bool, sample: *mut Sample) 
         }
     }
     let len = offset + usable;
-    let base = os::map_aligned(len, CHUNK.max(align));
+    let base = crate::arena::map_or_make_room(len, CHUNK.max(align));
     if base.is_null() {
         return null_mut();
     }

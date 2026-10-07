@@ -585,6 +585,20 @@ pub unsafe fn decay_tick() {
     crate::huge::decay();
 }
 
+/// Maps `len` bytes aligned to `align`. When the OS refuses, unmaps the
+/// spare chunks and the cached huge mappings, which hold address space and
+/// memory that nothing uses, and tries once more. Callers may hold an
+/// arena's pages lock, which comes before both caches' locks.
+pub(crate) unsafe fn map_or_make_room(len: usize, align: usize) -> *mut u8 {
+    let p = os::map_aligned(len, align);
+    if !p.is_null() {
+        return p;
+    }
+    spare_decay(true);
+    crate::huge::purge();
+    os::map_aligned(len, align)
+}
+
 /// Purges every dirty page and unmaps every empty chunk
 pub unsafe fn purge() {
     let _decay = DECAY.lock();

@@ -153,7 +153,7 @@ impl ArenaChunk {
     }
 
     pub unsafe fn create(arena: *const Arena, sampled: bool) -> *mut ArenaChunk {
-        let c: *mut ArenaChunk = os::map_aligned(CHUNK, CHUNK).cast();
+        let c: *mut ArenaChunk = crate::arena::map_or_make_room(CHUNK, CHUNK).cast();
         if c.is_null() {
             return c;
         }
