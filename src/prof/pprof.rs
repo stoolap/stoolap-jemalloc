@@ -172,11 +172,16 @@ fn simplify(name: &str) -> String {
     out
 }
 
-/// Whether a line belongs to the allocator itself
+/// Whether a line belongs to the allocator itself: by its source file,
+/// or by its name, for the allocator shims that live in the program.
+/// Builds with `debug = "line-tables-only"` name functions without their
+/// paths, so the name alone does not tell.
 fn is_internal(line: &Line) -> bool {
-    ["stoolap_jemalloc::", "__rustc::", "__rust_", "__rg_"]
-        .iter()
-        .any(|p| line.name.starts_with(p))
+    let own_source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    std::path::Path::new(&line.file).starts_with(own_source)
+        || ["stoolap_jemalloc::", "__rustc::", "__rust_", "__rg_"]
+            .iter()
+            .any(|p| line.name.starts_with(p))
 }
 
 /// A location's lines without the allocator's own, which inlining puts at
@@ -372,7 +377,34 @@ fn encode_mapping(strings: &mut Strings, id: u64, m: &Mapping, symbolized: u64) 
 
 #[cfg(all(test, feature = "symbolize"))]
 mod tests {
-    use super::simplify;
+    use super::{Line, is_internal, simplify};
+
+    fn line(name: &str, file: &str) -> Line {
+        Line {
+            name: name.to_string(),
+            system_name: name.to_string(),
+            file: file.to_string(),
+            number: 1,
+        }
+    }
+
+    /// With line tables only, names come without paths: the allocator's own
+    /// frames are still told by their files
+    #[test]
+    fn internal_frames_without_paths() {
+        let own = format!("{}/src/malloc.rs", env!("CARGO_MANIFEST_DIR"));
+        assert!(is_internal(&line("alloc", &own)));
+        assert!(is_internal(&line("stoolap_jemalloc::malloc::alloc", "")));
+        assert!(is_internal(&line("__rust_alloc", "/app/src/lib.rs")));
+        assert!(!is_internal(&line(
+            "alloc",
+            "/rustlib/src/rust/library/alloc/src/alloc.rs"
+        )));
+        assert!(!is_internal(&line(
+            "add_versions_batch",
+            "/app/src/storage/mvcc.rs"
+        )));
+    }
 
     #[test]
     fn simplifies_rust_names() {
