@@ -1,7 +1,29 @@
-# stoolap-jemalloc
+<div align="center">
+  <h1>stoolap-jemalloc</h1>
 
-A fast, memory-frugal, jemalloc-style allocator written in pure Rust, with a
-built-in sampling heap profiler that writes [pprof] profiles.
+  <h3>A jemalloc-Style Memory Allocator in Pure Rust, with a pprof Heap Profiler</h3>
+
+  <p>
+    <a href="#quick-start">Quick start</a> •
+    <a href="#heap-profiling">Heap profiling</a> •
+    <a href="#design">Design</a> •
+    <a href="#benchmarks">Benchmarks</a>
+  </p>
+
+  <p>
+    <a href="https://github.com/stoolap/stoolap-jemalloc/actions/workflows/ci.yml"><img src="https://github.com/stoolap/stoolap-jemalloc/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://codecov.io/gh/stoolap/stoolap-jemalloc"><img src="https://codecov.io/gh/stoolap/stoolap-jemalloc/branch/main/graph/badge.svg" alt="codecov"></a>
+    <a href="https://github.com/stoolap/stoolap-jemalloc/actions/workflows/audit.yml"><img src="https://github.com/stoolap/stoolap-jemalloc/actions/workflows/audit.yml/badge.svg" alt="Security Audit"></a>
+    <a href="Cargo.toml"><img src="https://img.shields.io/badge/MSRV-1.88-orange.svg" alt="MSRV 1.88"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
+  </p>
+</div>
+
+---
+
+stoolap-jemalloc is a fast, memory-frugal, jemalloc-style allocator written
+in pure Rust, with a built-in sampling heap profiler that writes [pprof]
+profiles.
 
 - **Pure Rust.** No C code is compiled. The crate binds only to the OS:
   `libc` on unix and `windows-sys` on Windows.
@@ -139,13 +161,15 @@ stoolap_jemalloc::purge(); // return free memory to the OS now
 
 ## Platforms
 
-| Platform              | Status                                  |
-|-----------------------|-----------------------------------------|
-| macOS, Apple silicon  | Tested                                  |
-| Linux, aarch64        | Tested                                  |
-| Linux, x86 (32-bit)   | Tested                                  |
-| Linux, x86_64         | Not yet built                           |
-| Windows               | Compiles and passes clippy; not yet run |
+All of these run the test suite, in release and debug builds:
+
+| Platform              | Where                        |
+|-----------------------|------------------------------|
+| Linux, x86_64         | CI                           |
+| Linux, x86 (32-bit)   | CI, in a 32-bit container    |
+| Linux, aarch64        | Locally, in Docker           |
+| macOS, Apple silicon  | CI and locally               |
+| Windows, x86_64       | CI                           |
 
 ## Design
 
@@ -386,8 +410,6 @@ changes.
 - **No background thread.** Decay runs as the allocator is used. When the
   whole process stops allocating, free pages stay until `purge()` or the
   next allocation.
-- **Windows is untested.** It compiles and passes clippy, but has not
-  been run.
 - **Sampled allocations take at least one 4 KiB page**, as in jemalloc.
 
 ## License
