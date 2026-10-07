@@ -194,6 +194,17 @@ pub unsafe fn resize_in_place(ptr: *mut u8, size: usize) -> bool {
     size <= usable && size > usable / 2
 }
 
+#[cfg(all(unix, not(miri)))]
+/// Holds the cache's lock across `fork`
+pub(crate) fn fork_lock() {
+    CACHE.acquire();
+}
+
+#[cfg(all(unix, not(miri)))]
+pub(crate) unsafe fn fork_unlock() {
+    CACHE.release();
+}
+
 /// Unmaps every cached mapping
 pub unsafe fn purge() {
     release(true, Instant::now());

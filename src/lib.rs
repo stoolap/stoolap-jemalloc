@@ -39,8 +39,11 @@
 //! - heap profiling by sampling, on average once per 512 KiB allocated
 
 mod arena;
+pub mod background;
 mod base;
 mod chunk;
+#[cfg(all(unix, not(miri)))]
+mod fork;
 mod huge;
 mod lock;
 mod malloc;

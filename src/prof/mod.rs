@@ -222,6 +222,19 @@ impl Stacks {
     }
 }
 
+#[cfg(all(unix, not(miri)))]
+/// Holds the profiler's locks across `fork`, stacks before samples
+pub(crate) fn fork_lock() {
+    STACKS.acquire();
+    SAMPLES.fork_lock();
+}
+
+#[cfg(all(unix, not(miri)))]
+pub(crate) unsafe fn fork_unlock() {
+    SAMPLES.fork_unlock();
+    STACKS.release();
+}
+
 fn hash_frames(frames: &[usize]) -> u64 {
     let mut h: u64 = 0;
     for &f in frames {

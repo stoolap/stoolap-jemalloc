@@ -7,6 +7,13 @@ authors = ["Stoolap Contributors"]
 description = "A jemalloc-style memory allocator written in pure Rust, with a built-in pprof heap profiler"
 license = "Apache-2.0"
 repository = "https://github.com/stoolap/stoolap-jemalloc"
+homepage = "https://github.com/stoolap/stoolap-jemalloc"
+documentation = "https://docs.rs/stoolap-jemalloc"
+readme = "README.md"
+keywords = ["allocator", "jemalloc", "malloc", "pprof", "profiling"]
+categories = ["memory-management", "development-tools::profiling"]
+# The benchmarks and CI files stay in the repository, out of the package
+exclude = [".github/", "bench/", "codecov.yml"]
 
 [features]
 default = ["symbolize"]

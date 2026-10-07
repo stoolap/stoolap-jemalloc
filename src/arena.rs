@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 
 /// Freed pages go back to the OS after one to two epochs, and spare
 /// chunks are unmapped after as long
-const DECAY_EPOCH: Duration = Duration::from_secs(5);
+pub(crate) const DECAY_EPOCH: Duration = Duration::from_secs(5);
 const MAX_ARENAS: usize = 256;
 
 pub struct Arena {
@@ -517,6 +517,47 @@ unsafe fn spare_decay(all: bool) {
         unmap = (*c).next;
         os::unmap(c.cast(), CHUNK);
         stats::CHUNK_BYTES.sub(CHUNK);
+    }
+}
+
+#[cfg(all(unix, not(miri)))]
+/// Takes every arena lock across `fork`, in the order the allocator nests
+/// them: decay, arena creation, each arena's bins then pages, then spare
+/// chunks
+pub(crate) fn fork_lock() {
+    DECAY.acquire();
+    INIT.acquire();
+    unsafe {
+        for_each(|a| {
+            for bin in &a.bins {
+                bin.0.acquire();
+            }
+            a.pages.acquire();
+        });
+    }
+    SPARE.acquire();
+}
+
+#[cfg(all(unix, not(miri)))]
+pub(crate) unsafe fn fork_unlock() {
+    SPARE.release();
+    for_each(|a| {
+        a.pages.release();
+        for bin in &a.bins {
+            bin.0.release();
+        }
+    });
+    INIT.release();
+    DECAY.release();
+}
+
+#[cfg(all(unix, not(miri)))]
+/// In a child after `fork`, only the forking thread is left: no arena has
+/// threads but its own
+pub(crate) unsafe fn fork_child(own: *mut Arena) {
+    for_each(|a| a.threads.store(0, Ordering::Relaxed));
+    if !own.is_null() {
+        (*own).threads.store(1, Ordering::Relaxed);
     }
 }
 

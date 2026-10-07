@@ -98,6 +98,17 @@ impl Drop for Guard {
     }
 }
 
+#[cfg(all(unix, not(miri)))]
+/// Holds the cache pool's lock across `fork`
+pub(crate) fn fork_lock() {
+    POOL.fork_lock();
+}
+
+#[cfg(all(unix, not(miri)))]
+pub(crate) unsafe fn fork_unlock() {
+    POOL.fork_unlock();
+}
+
 /// The thread's cache, or null before it exists or after the thread
 /// started exiting
 #[inline(always)]
@@ -137,6 +148,8 @@ pub unsafe fn get_or_init() -> *mut TCache {
     }
     let t = init(block, arena);
     CURRENT.with(|c| c.set(t));
+    #[cfg(all(unix, not(miri)))]
+    crate::fork::register();
     t
 }
 

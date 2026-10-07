@@ -45,6 +45,17 @@ pub unsafe fn alloc(size: usize, align: usize) -> *mut u8 {
     p
 }
 
+#[cfg(all(unix, not(miri)))]
+/// Holds the metadata lock across `fork`
+pub(crate) fn fork_lock() {
+    BASE.acquire();
+}
+
+#[cfg(all(unix, not(miri)))]
+pub(crate) unsafe fn fork_unlock() {
+    BASE.release();
+}
+
 /// Free list of `T`-sized blocks; a freed block's first word links it.
 /// Blocks from the pool are zeroed only when they are new.
 pub struct Pool<T> {
@@ -73,6 +84,17 @@ impl<T> Pool<T> {
             }
         }
         alloc(size_of::<T>().max(8), align_of::<T>().max(8)).cast()
+    }
+
+    #[cfg(all(unix, not(miri)))]
+    /// Holds the pool's lock across `fork`
+    pub fn fork_lock(&self) {
+        self.free.acquire();
+    }
+
+    #[cfg(all(unix, not(miri)))]
+    pub unsafe fn fork_unlock(&self) {
+        self.free.release();
     }
 
     pub unsafe fn free(&self, p: *mut T) {

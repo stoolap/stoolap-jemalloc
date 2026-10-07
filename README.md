@@ -41,6 +41,7 @@ profiles.
 - [Quick start](#quick-start)
 - [Heap profiling](#heap-profiling)
 - [Statistics and purging](#statistics-and-purging)
+- [Background purging](#background-purging)
 - [Platforms](#platforms)
 - [Design](#design)
 - [Benchmarks](#benchmarks)
@@ -159,6 +160,26 @@ stoolap_jemalloc::purge(); // return free memory to the OS now
 
 `mapped()` is the sum of the four.
 
+## Background purging
+
+Free pages go back to the OS as the allocator is used. A process that
+stops allocating keeps them, unless it starts the background thread:
+
+```rust
+stoolap_jemalloc::background::start(); // once, at startup
+```
+
+The thread ends a decay epoch every 5 seconds, so pages that stay free
+for 5 to 10 seconds go back to the OS, and empty chunks are unmapped, even
+while the process allocates nothing. In a test, 120 MiB freed by an idle
+process stayed mapped for 30 seconds without the thread, and went back
+within about 10 seconds with it.
+
+As in jemalloc, the thread is off by default: a library that starts
+threads on its own surprises sandboxes and programs that count or fork
+their threads. `background::is_running()` tells whether it runs. A child
+process after `fork` has no such thread and may start its own.
+
 ## Platforms
 
 All of these run the test suite, in release and debug builds:
@@ -247,6 +268,15 @@ Borrows, including runs where threads work on the same chunk at once.
   through an allocator that wraps this one, and the allocator's writes,
   such as free-list links, then act under that permission instead of
   invalidating it.
+
+### Fork safety
+
+A child process starts with only the thread that forked. A lock another
+thread held at the fork, or a structure it was changing, would stay so in
+the child. Handlers registered with `pthread_atfork` take every allocator
+lock before the fork, in the order the allocator nests them, and release
+them after it in both processes. In the child, the arenas also forget the
+threads that did not come along.
 
 ### Profiler internals
 
@@ -345,6 +375,9 @@ The tests cover:
 - frees from other threads, and many short-lived threads
 - random multi-threaded stress
 - allocations made while a thread exits
+- forks while other threads allocate, purge and profile, with the
+  background thread running
+- the background thread returning memory of an idle process
 - statistics, purging and the expiry of cached huge mappings
 - decay on systems whose OS pages hold several allocator pages
 - the profiler, with every allocation sampled
@@ -405,11 +438,12 @@ changes.
 
 ## Limitations
 
-- **No `fork` handlers yet.** A child forked while another thread holds an
-  allocator lock can deadlock; `fork` followed by `exec` is fine.
-- **No background thread.** Decay runs as the allocator is used. When the
-  whole process stops allocating, free pages stay until `purge()` or the
-  next allocation.
+- **Thread caches of other threads are lost to a child after `fork`**, as
+  in jemalloc. A full cache holds up to about 1.7 MiB.
+- **Idle thread caches.** A thread that stops allocating keeps the objects
+  in its cache, up to about 1.7 MiB when every size class is full. Only the
+  thread itself may touch its cache, so the background thread cannot trim
+  it.
 - **Sampled allocations take at least one 4 KiB page**, as in jemalloc.
 
 ## License

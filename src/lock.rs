@@ -56,6 +56,20 @@ impl<T> SpinLock<T> {
             .map(|_| SpinGuard { lock: self })
     }
 
+    #[cfg(all(unix, not(miri)))]
+    /// Takes the lock without a guard; for the fork handlers, which hold
+    /// every lock across `fork`
+    pub fn acquire(&self) {
+        core::mem::forget(self.lock());
+    }
+
+    #[cfg(all(unix, not(miri)))]
+    /// Releases a lock taken with `acquire`. In a child after `fork`, this
+    /// also releases a lock that the parent's thread took.
+    pub unsafe fn release(&self) {
+        self.locked.store(false, Ordering::Release);
+    }
+
     #[cold]
     fn lock_contended(&self) {
         let mut step = 0u32;
