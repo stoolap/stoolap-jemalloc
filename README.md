@@ -47,7 +47,7 @@ profiles.
 - [Platforms](#platforms)
 - [Design](#design)
 - [Benchmarks](#benchmarks)
-- [Development](#development)
+- [Testing](#testing)
 - [Limitations](#limitations)
 - [License](#license)
 
@@ -139,16 +139,16 @@ dump: its mapping is marked as not symbolized.
 
 ### API
 
-| Function                        | Purpose                              |
-|---------------------------------|--------------------------------------|
+| Function                           | Purpose                                             |
+|------------------------------------|-----------------------------------------------------|
 | `Jemalloc::new().with_profiling()` | An allocator that samples from the first allocation |
-| `prof::activate()`              | Start sampling                       |
-| `prof::deactivate()`            | Stop sampling; live samples stay     |
-| `prof::is_active()`             | Whether sampling is on               |
-| `prof::set_sample_interval(n)`  | Mean bytes between samples           |
-| `prof::sample_interval()`       | The current interval                 |
-| `prof::dump_pprof()`            | The profile as protobuf bytes        |
-| `prof::write_pprof(path)`       | Write the profile; returns its size  |
+| `prof::activate()`                 | Start sampling                                      |
+| `prof::deactivate()`               | Stop sampling; live samples stay                    |
+| `prof::is_active()`                | Whether sampling is on                              |
+| `prof::set_sample_interval(n)`     | Mean bytes between samples, from 1 B to 128 TiB     |
+| `prof::sample_interval()`          | The current interval                                |
+| `prof::dump_pprof()`               | The profile as protobuf bytes                       |
+| `prof::write_pprof(path)`          | Write the profile; returns its size                 |
 
 `dump_pprof` and `write_pprof` fail with `DumpError::NotActivated` if
 profiling was never activated, and `write_pprof` with `DumpError::Io` if
@@ -189,7 +189,8 @@ stoolap_jemalloc::purge(); // return free memory to the OS now
 | `huge_cached` | Freed huge mappings kept for reuse              |
 | `metadata`    | The allocator's own metadata, profiler included |
 
-`mapped()` is the sum of the four.
+`mapped()` is the sum of the four. It counts address space held, not
+resident memory: free pages returned to the OS stay mapped.
 
 ## Background purging
 
@@ -278,6 +279,8 @@ A stack of a small class holds up to 200 objects or 16 KiB, and at least
   silicon do, it goes back once all of them are free.
 - **Huge mappings.** Freed huge mappings are unmapped, except a few that
   are kept for reuse: up to 64 MiB, for 10 to 15 seconds.
+- **When the OS refuses memory**, the spare chunks and cached huge mappings
+  go back to it, and the mapping is tried once more.
 - **No transparent huge pages** for chunks on Linux. A 2 MiB huge page
   stays resident while any 4 KiB of it is in use. With huge pages, a
   multi-threaded `Vec` growth benchmark also ran over twice as slow.
@@ -308,7 +311,8 @@ thread held at the fork, or a structure it was changing, would stay so in
 the child. Handlers registered with `pthread_atfork` take every allocator
 lock before the fork, in the order the allocator nests them, and release
 them after it in both processes. In the child, the arenas also forget the
-threads that did not come along.
+threads that did not come along. A fork also waits for a running profile
+dump to end, since a dump holds the symbolizer's lock.
 
 ### Profiler internals
 
@@ -389,7 +393,7 @@ Results depend on the machine and the workload, so measure with your own.
 The Linux numbers come from a virtual machine, where page table walks cost
 more than on bare metal.
 
-## Development
+## Testing
 
 Tests run the allocator as the global allocator of each test binary:
 
@@ -400,15 +404,18 @@ cargo test --release --no-default-features   # without symbolization
 
 The tests cover:
 
-- sizes from 0 bytes to 12 MiB, with alignments up to 16 MiB
+- sizes from 1 byte to 12 MiB, with alignments up to 16 MiB
 - sizes too large to allocate, which fail without panicking, on 64-bit
   and 32-bit targets
+- allocations past an address space limit on Linux, which return null
+  and leave the allocator working once memory is back
 - `realloc` across every kind of allocation
 - frees from other threads, and many short-lived threads
 - random multi-threaded stress
 - allocations made while a thread exits
 - forks while other threads allocate, purge and profile, with the
-  background thread running
+  background thread running; forks during a profile dump; and forks in
+  the middle of registering the fork handlers
 - the background thread returning memory of an idle process
 - statistics, purging and the expiry of cached huge mappings
 - decay on systems whose OS pages hold several allocator pages
@@ -420,54 +427,13 @@ The tests cover:
 - libraries loaded after the first dump
 - profile dumps while another thread loads and unloads a library
 
-Miri runs a smaller set of workloads against Rust's aliasing and data
-race rules, including an allocator that wraps this one and, right after a
-free, purges or takes a huge mapping back out of the cache:
+Miri runs a smaller set of workloads under Stacked Borrows and Tree
+Borrows:
 
 ```sh
-export MIRIFLAGS="-Zmiri-ignore-leaks -Zmiri-permissive-provenance"
-cargo +nightly miri test --test miri --test miri_wrapper
-MIRIFLAGS="$MIRIFLAGS -Zmiri-tree-borrows" cargo +nightly miri test --test miri --test miri_wrapper
+MIRIFLAGS="-Zmiri-ignore-leaks -Zmiri-permissive-provenance" \
+  cargo +nightly miri test --test miri --test miri_wrapper
 ```
-
-Line coverage is about 97%; the remaining lines are mostly out-of-memory
-paths:
-
-```sh
-cargo llvm-cov --release --summary-only
-```
-
-Lints run with warnings as errors. Clippy's pedantic group is on in
-`Cargo.toml`, except the cast lints that bit-level allocator code trips on
-purpose.
-
-```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo clippy --all-targets --no-default-features -- -D warnings
-cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings
-cargo clippy --all-targets --target i686-unknown-linux-gnu -- -D warnings
-# Builds the tests too, without linking, which finds what check does not
-CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER=true cargo build --all-targets --target i686-unknown-linux-gnu
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
-```
-
-### Continuous integration
-
-`.github/workflows/ci.yml` runs on every push and pull request:
-
-| Job          | What it checks                                                        |
-|--------------|-----------------------------------------------------------------------|
-| Lint         | Formatting, clippy (also for Windows and 32-bit Linux), docs         |
-| MSRV         | Builds with Rust 1.88                                                 |
-| Test         | Tests on Linux, macOS and Windows, with and without `symbolize`, in release and debug |
-| Test (32-bit Linux) | Tests in a 32-bit container                                    |
-| Miri         | The Miri tests under Stacked Borrows and Tree Borrows                 |
-| Coverage     | Line coverage, uploaded to Codecov                                    |
-| License      | The license header in every Rust file                                 |
-
-`.github/workflows/audit.yml` runs `cargo audit` daily and on dependency
-changes.
 
 ## Limitations
 
@@ -487,5 +453,4 @@ changes.
 
 ## License
 
-Apache-2.0; see [LICENSE](LICENSE). Every source file carries the
-license header, which CI checks.
+Apache-2.0; see [LICENSE](LICENSE).
