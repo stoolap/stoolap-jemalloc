@@ -1,0 +1,41 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**/Cargo.toml'
+      - '.github/workflows/audit.yml'
+  pull_request:
+    paths:
+      - '**/Cargo.toml'
+      - '.github/workflows/audit.yml'
+  schedule:
+    - cron: '0 4 * * *' # 4 AM UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-audit
+      uses: taiki-e/install-action@cargo-audit
+
+    # Cargo.lock is not committed for this library, so the audit checks
+    # the newest versions its dependencies resolve to
+    - name: Resolve dependencies
+      run: cargo generate-lockfile
+
+    # Fails on vulnerabilities; informational advisories (unmaintained, unsound)
+    # are reported in the log but do not fail the job.
+    - name: Audit Cargo.lock against the RustSec database
+      run: cargo audit

@@ -1,0 +1,23 @@
+# Compares allocators; kept out of the main crate since mimalloc and
+# tikv-jemallocator build C code
+[package]
+name = "allocator-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+ours = ["dep:stoolap-jemalloc"]
+mimalloc = ["dep:mimalloc"]
+jemalloc = ["dep:tikv-jemallocator"]
+
+[dependencies]
+stoolap-jemalloc = { path = "..", optional = true }
+mimalloc = { version = "0.1", optional = true }
+tikv-jemallocator = { version = "0.7", optional = true }
+libc = "0.2"
+
+[profile.release]
+debug = 1
