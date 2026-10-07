@@ -87,23 +87,26 @@ impl Jemalloc {
     }
 }
 
+// Calls, not inlined: inlined, the allocator's paths grew the loops that
+// allocate or drop, and a full table scan in Stoolap ran 20% slower even
+// though it allocated only 32 times
 unsafe impl GlobalAlloc for Jemalloc {
-    #[inline(always)]
+    #[inline(never)]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         malloc::alloc(layout.size(), layout.align(), self.profiling)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         malloc::dealloc(ptr, layout.size(), layout.align());
     }
 
-    #[inline(always)]
+    #[inline(never)]
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         malloc::alloc_zeroed(layout.size(), layout.align(), self.profiling)
     }
 
-    #[inline]
+    #[inline(never)]
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         malloc::realloc(ptr, layout.size(), layout.align(), new_size, self.profiling)
     }

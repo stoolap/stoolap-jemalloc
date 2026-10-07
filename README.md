@@ -352,27 +352,27 @@ macOS, Apple M5 with 10 cores (best of 4 runs):
 
 | Benchmark         | stoolap-jemalloc | mimalloc | jemalloc (C) | system |
 |-------------------|-----------------:|---------:|-------------:|-------:|
-| small_churn 1t    | **11.6**         | 30.3     | 42.0         | 69.1   |
-| small_churn Nt    | **30.4**         | 39.5     | 62.5         | 119.5  |
-| mixed 1t          | 36.7             | **32.1** | 37.8         | 58.8   |
-| mixed Nt          | **80.7**         | 82.0     | 81.4         | 195.6  |
-| strings_tree 1t   | 52.2             | **52.0** | 61.1         | 63.6   |
-| strings_tree Nt   | **92.8**         | 97.1     | 115.4        | 121.9  |
-| vec_growth Nt     | **12.3**         | 18.6     | 13.2         | 16.1   |
-| producer_consumer | 8.3              | 10.2     | **8.2**      | 9.9    |
+| small_churn 1t    | **23.7**         | 30.1     | 42.9         | 72.0   |
+| small_churn Nt    | 42.3             | **42.1** | 65.3         | 116.5  |
+| mixed 1t          | 32.4             | **30.8** | 36.5         | 57.1   |
+| mixed Nt          | **80.6**         | 84.8     | 82.8         | 182.2  |
+| strings_tree 1t   | **56.0**         | 56.2     | 68.3         | 64.8   |
+| strings_tree Nt   | 100.5            | **96.8** | 116.3        | 138.8  |
+| vec_growth Nt     | **12.3**         | 18.9     | 13.3         | 16.2   |
+| producer_consumer | 9.8              | 10.2     | **8.2**      | 11.9   |
 
 Linux aarch64 in a Docker VM with 8 CPUs (median of 5 single runs):
 
 | Benchmark         | stoolap-jemalloc | mimalloc | jemalloc (C) | system |
 |-------------------|-----------------:|---------:|-------------:|-------:|
-| small_churn 1t    | **24.5**         | 45.9     | 41.4         | 55.7   |
-| small_churn Nt    | **30.3**         | 50.9     | 40.3         | 96.1   |
-| mixed 1t          | 39.8             | 36.2     | **35.7**     | 62.6   |
-| mixed Nt          | 125.1            | 142.4    | **122.4**    | 129.9  |
-| strings_tree 1t   | 66.3             | **64.4** | 72.6         | 76.4   |
-| strings_tree Nt   | **93.5**         | 94.6     | 103.1        | 116.8  |
-| vec_growth Nt     | **10.6**         | 35.5     | 12.4         | 45.5   |
-| producer_consumer | 12.9             | 25.2     | **9.0**      | 44.6   |
+| small_churn 1t    | **40.0**         | 45.9     | 41.4         | 55.7   |
+| small_churn Nt    | **40.3**         | 50.9     | **40.3**     | 96.1   |
+| mixed 1t          | 38.8             | 36.2     | **35.7**     | 62.6   |
+| mixed Nt          | 126.4            | 142.4    | **122.4**    | 129.9  |
+| strings_tree 1t   | 64.5             | **64.4** | 72.6         | 76.4   |
+| strings_tree Nt   | 100.2            | **94.6** | 103.1        | 116.8  |
+| vec_growth Nt     | **11.3**         | 35.5     | 12.4         | 45.5   |
+| producer_consumer | 11.6             | 25.2     | **9.0**      | 44.6   |
 
 ### Memory
 
