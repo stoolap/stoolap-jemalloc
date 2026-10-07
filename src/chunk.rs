@@ -159,7 +159,7 @@ impl ArenaChunk {
         }
         c.expose_provenance();
         os::no_huge_pages(c.cast(), CHUNK);
-        stats::add_chunks(CHUNK as isize);
+        stats::CHUNK_BYTES.add(CHUNK);
         // The mapping is zeroed, so only the non-zero fields need setting
         (*c).head.kind = KIND_ARENA;
         (*c).head.sampled = u8::from(sampled);

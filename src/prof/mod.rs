@@ -213,9 +213,9 @@ impl Stacks {
         if !self.table.is_null() {
             let old = os::round_up(self.cap * size_of::<usize>(), os::page_size());
             os::unmap(self.table.cast(), old);
-            crate::stats::add_metadata(-(old as isize));
+            crate::stats::METADATA_BYTES.sub(old);
         }
-        crate::stats::add_metadata(bytes as isize);
+        crate::stats::METADATA_BYTES.add(bytes);
         self.table = table;
         self.cap = cap;
         true

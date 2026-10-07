@@ -52,18 +52,21 @@ pub fn stats() -> Stats {
     }
 }
 
-pub(crate) fn add_chunks(n: isize) {
-    CHUNKS.fetch_add(n as usize, Relaxed);
+/// A counter of bytes. Additions and subtractions are separate so that no
+/// size needs a sign: on 32-bit targets a mapping can exceed `isize::MAX`.
+pub(crate) struct Counter(&'static AtomicUsize);
+
+impl Counter {
+    pub(crate) fn add(&self, n: usize) {
+        self.0.fetch_add(n, Relaxed);
+    }
+
+    pub(crate) fn sub(&self, n: usize) {
+        self.0.fetch_sub(n, Relaxed);
+    }
 }
 
-pub(crate) fn add_huge(n: isize) {
-    HUGE.fetch_add(n as usize, Relaxed);
-}
-
-pub(crate) fn add_huge_cached(n: isize) {
-    HUGE_CACHED.fetch_add(n as usize, Relaxed);
-}
-
-pub(crate) fn add_metadata(n: isize) {
-    METADATA.fetch_add(n as usize, Relaxed);
-}
+pub(crate) const CHUNK_BYTES: Counter = Counter(&CHUNKS);
+pub(crate) const HUGE_BYTES: Counter = Counter(&HUGE);
+pub(crate) const HUGE_CACHED_BYTES: Counter = Counter(&HUGE_CACHED);
+pub(crate) const METADATA_BYTES: Counter = Counter(&METADATA);

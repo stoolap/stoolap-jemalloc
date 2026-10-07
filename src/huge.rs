@@ -80,7 +80,7 @@ pub unsafe fn alloc(size: usize, align: usize, zero: bool, sample: *mut Sample) 
         return null_mut();
     }
     base.expose_provenance();
-    stats::add_huge(len as isize);
+    stats::HUGE_BYTES.add(len);
     let p = base.add(offset);
     let h = head(p);
     ptr::write(
@@ -112,8 +112,8 @@ pub unsafe fn free(ptr: *mut u8) {
             cache.entries[i] = (h, Some(now));
             cache.len += 1;
             cache.bytes += len;
-            stats::add_huge(-(len as isize));
-            stats::add_huge_cached(len as isize);
+            stats::HUGE_BYTES.sub(len);
+            stats::HUGE_CACHED_BYTES.add(len);
             n = cache.evict(
                 &mut evict,
                 |c| c.len == CACHE_SLOTS || c.bytes > CACHE_MAX_BYTES,
@@ -121,12 +121,12 @@ pub unsafe fn free(ptr: *mut u8) {
             );
         }
         for &h in &evict[..n] {
-            stats::add_huge_cached(-((*h).map_len as isize));
+            stats::HUGE_CACHED_BYTES.sub((*h).map_len);
             os::unmap((*h).map_base, (*h).map_len);
         }
         return;
     }
-    stats::add_huge(-(len as isize));
+    stats::HUGE_BYTES.sub(len);
     os::unmap((*h).map_base, len);
 }
 
@@ -183,8 +183,8 @@ unsafe fn cache_take(usable: usize) -> *mut HugeHead {
     }
     let h = cache.entries[best].0;
     cache.remove(best);
-    stats::add_huge_cached(-((*h).map_len as isize));
-    stats::add_huge((*h).map_len as isize);
+    stats::HUGE_CACHED_BYTES.sub((*h).map_len);
+    stats::HUGE_BYTES.add((*h).map_len);
     h
 }
 
@@ -210,7 +210,7 @@ unsafe fn release(all: bool, now: Instant) {
     let mut evict = [null_mut(); CACHE_SLOTS + 1];
     let n = CACHE.lock().evict(&mut evict, |_| all, now);
     for &h in &evict[..n] {
-        stats::add_huge_cached(-((*h).map_len as isize));
+        stats::HUGE_CACHED_BYTES.sub((*h).map_len);
         os::unmap((*h).map_base, (*h).map_len);
     }
 }

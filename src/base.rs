@@ -37,7 +37,7 @@ pub unsafe fn alloc(size: usize, align: usize) -> *mut u8 {
         if m.is_null() {
             return null_mut();
         }
-        stats::add_metadata(len as isize);
+        stats::METADATA_BYTES.add(len);
         p = m.map_addr(|a| os::round_up(a, align));
         *base = (p, m.addr() + len);
     }

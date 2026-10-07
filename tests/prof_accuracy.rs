@@ -142,22 +142,24 @@ fn estimates_match_the_allocations() {
     drop(blocks);
 
     // Functions are told apart by their full names and files, though two
-    // traits' methods on one type simplify to the same name
+    // traits' methods on one type can simplify to the same name
     {
         use common::traits::{Second, Twice};
         // This thread last drew a wait before the interval became 1
         drop(black_box(vec![0u8; 1 << 20]));
         let kept = (First::allocate(&Twice), Second::allocate(&Twice));
         let profile = common::parse(&prof::dump_pprof().unwrap());
-        let mut files: Vec<&str> = profile
-            .functions
-            .values()
-            .filter(|f| f.name.ends_with("Twice::allocate"))
-            .map(|f| f.file.as_str())
-            .collect();
-        files.sort_unstable();
-        assert_eq!(files.len(), 2, "{files:?}");
-        assert!(files[0].ends_with("common/traits.rs") && files[1].ends_with("prof_accuracy.rs"));
+        // Symbol names of trait methods differ by platform (on Windows they
+        // do not end in `Twice::allocate`), so the methods are found by
+        // file: each one keeps its own
+        let has_allocate_in = |file: &str| {
+            profile
+                .functions
+                .values()
+                .any(|f| f.name.contains("allocate") && f.file.replace('\\', "/").ends_with(file))
+        };
+        assert!(has_allocate_in("common/traits.rs"), "Second::allocate");
+        assert!(has_allocate_in("prof_accuracy.rs"), "First::allocate");
         drop(kept);
     }
 

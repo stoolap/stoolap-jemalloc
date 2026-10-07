@@ -516,7 +516,7 @@ unsafe fn spare_decay(all: bool) {
         let c = unmap;
         unmap = (*c).next;
         os::unmap(c.cast(), CHUNK);
-        stats::add_chunks(-(CHUNK as isize));
+        stats::CHUNK_BYTES.sub(CHUNK);
     }
 }
 
