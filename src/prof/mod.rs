@@ -396,7 +396,12 @@ pub fn dump_pprof() -> Result<Vec<u8>, DumpError> {
     if !EVER.load(Ordering::Relaxed) {
         return Err(DumpError::NotActivated);
     }
-    Ok(pprof::encode(&snapshot(), sample_interval()))
+    let profile = pprof::encode(&snapshot(), sample_interval());
+    // The symbolizer keeps the debug information it parsed, tens of
+    // megabytes for a large library
+    #[cfg(feature = "symbolize")]
+    ::backtrace::clear_symbol_cache();
+    Ok(profile)
 }
 
 /// Writes the heap profile to `path`; returns its size in bytes
