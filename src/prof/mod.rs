@@ -65,10 +65,22 @@ pub fn is_active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-/// Sets the mean number of bytes between samples
+/// Sets the mean number of bytes between samples, from 1 byte to 128 TiB;
+/// values outside are clamped
 pub fn set_sample_interval(bytes: usize) {
-    INTERVAL.store(bytes.max(1), Ordering::Relaxed);
+    INTERVAL.store(bytes.clamp(1, MAX_INTERVAL), Ordering::Relaxed);
 }
+
+/// The largest interval: a sample's weight in bytes, about the interval in
+/// fixed point, then still fits in a `u64`
+const MAX_INTERVAL: usize = {
+    let max = 1u64 << 47;
+    if max < usize::MAX as u64 {
+        max as usize
+    } else {
+        usize::MAX
+    }
+};
 
 /// The mean number of bytes between samples
 pub fn sample_interval() -> usize {
@@ -290,7 +302,8 @@ pub(crate) unsafe fn sample_alloc(
 
     // Each sample stands for 1 / P(sampled) allocations of its size
     let usable = usable.max(1) as f64;
-    let scale = 1.0 / (1.0 - (-usable / interval as f64).exp());
+    // 1 - e^-x, exact also when x is tiny
+    let scale = 1.0 / -(-usable / interval as f64).exp_m1();
     let one = f64::from(1u32 << WEIGHT_SHIFT);
     let objects = (scale * one).round() as u64;
     let bytes = (usable * scale * one).round() as u64;

@@ -478,6 +478,12 @@ changes.
   thread itself may touch its cache, so the background thread cannot trim
   it.
 - **Sampled allocations take at least one 4 KiB page**, as in jemalloc.
+- **Stacks are code addresses, symbolized when a profile is written.** A
+  sample whose stack went through a library that was unloaded since, with
+  another loaded at its addresses, is shown in the new library, as in
+  jemalloc's profiles.
+- **A dump's own allocations are sampled too**, so a profile written
+  after another may show what the first one still holds.
 
 ## License
 

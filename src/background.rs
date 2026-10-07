@@ -39,15 +39,19 @@ pub fn start() -> bool {
     if RUNNING.swap(true, Ordering::AcqRel) {
         return false;
     }
-    thread::Builder::new()
+    let spawned = thread::Builder::new()
         .name("stoolap-jemalloc-purge".into())
         .spawn(|| {
             loop {
                 thread::sleep(arena::DECAY_EPOCH);
                 unsafe { arena::decay_tick() };
             }
-        })
-        .expect("spawning the background purge thread");
+        });
+    if let Err(e) = spawned {
+        // Not running, so that a later call may try again
+        RUNNING.store(false, Ordering::Release);
+        panic!("spawning the background purge thread: {e}");
+    }
     true
 }
 

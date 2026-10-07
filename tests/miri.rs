@@ -43,27 +43,37 @@ fn thread_cache_round_trip() {
     }
 }
 
-/// Threads working on different size classes share chunks, while each
-/// holds only its own class's lock
+/// Threads freeing different size classes into one arena's chunk at once,
+/// each holding only its class's lock. The blocks are all made on this
+/// thread, so they share its arena whichever arenas the workers get.
 #[test]
 fn threads_on_different_classes() {
-    let handles: Vec<_> = [16usize, 48, 200, 3000]
+    let classes = [16usize, 48, 200, 3000];
+    // More than a cache holds, so the workers flush to the arena
+    let blocks: Vec<Vec<usize>> = classes
+        .iter()
+        .map(|&size| {
+            let layout = Layout::from_size_align(size, 8).unwrap();
+            (0..300)
+                .map(|_| unsafe {
+                    let p = GLOBAL.alloc(layout);
+                    p.write(size as u8);
+                    p as usize
+                })
+                .collect()
+        })
+        .collect();
+    let handles: Vec<_> = classes
         .into_iter()
-        .map(|size| {
+        .zip(blocks)
+        .map(|(size, ptrs)| {
             thread::spawn(move || {
                 let layout = Layout::from_size_align(size, 8).unwrap();
-                for _ in 0..3 {
-                    // More than a cache holds, so the threads refill and flush
-                    let ptrs: Vec<*mut u8> =
-                        (0..300).map(|_| unsafe { GLOBAL.alloc(layout) }).collect();
-                    for &p in &ptrs {
-                        unsafe { p.write(size as u8) };
-                    }
-                    for p in ptrs {
-                        unsafe {
-                            assert_eq!(*p, size as u8);
-                            GLOBAL.dealloc(p, layout);
-                        }
+                for p in ptrs {
+                    let p = p as *mut u8;
+                    unsafe {
+                        assert_eq!(*p, size as u8);
+                        GLOBAL.dealloc(p, layout);
                     }
                 }
             })

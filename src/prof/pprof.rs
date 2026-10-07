@@ -252,10 +252,11 @@ pub(super) fn encode(stacks: &[StackCounts], interval: usize) -> Vec<u8> {
 
     let mut symbols: HashMap<usize, Option<Vec<Line>>> = HashMap::new();
     let mut locations = Locations::default();
-    // Whether every location in each mapping got symbols; the symbolizer
-    // misses libraries loaded after its first use, and those are left for
-    // pprof to symbolize
-    let mut symbolized = vec![cfg!(feature = "symbolize"); mappings.len() + 1];
+    // Whether every location in each mapping got functions, file names and
+    // line numbers; the symbolizer misses libraries loaded after its first
+    // use, and those are left for pprof to symbolize. Inline frames come
+    // with the debug information that gives file names.
+    let mut complete = vec![[cfg!(feature = "symbolize"); 3]; mappings.len() + 1];
 
     for s in stacks {
         if s.alloc_objects == 0 {
@@ -268,9 +269,10 @@ pub(super) fn encode(stacks: &[StackCounts], interval: usize) -> Vec<u8> {
                 continue;
             };
             let mapping = mapping_of(addr as u64);
-            if lines.is_empty() {
-                symbolized[mapping as usize] = false;
-            }
+            let c = &mut complete[mapping as usize];
+            c[0] &= !lines.is_empty();
+            c[1] &= !lines.is_empty() && lines.iter().all(|l| !l.file.is_empty());
+            c[2] &= !lines.is_empty() && lines.iter().all(|l| l.number > 0);
             ids.push(locations.id(addr, lines, mapping, &mut strings));
         }
         let mut sample = Vec::new();
@@ -289,8 +291,12 @@ pub(super) fn encode(stacks: &[StackCounts], interval: usize) -> Vec<u8> {
     }
 
     for (i, m) in mappings.iter().enumerate() {
-        let complete = u64::from(symbolized[i + 1]);
-        out.extend(encode_mapping(&mut strings, i as u64 + 1, m, complete));
+        out.extend(encode_mapping(
+            &mut strings,
+            i as u64 + 1,
+            m,
+            complete[i + 1],
+        ));
     }
     out.extend(locations.encoded);
     out.extend(locations.functions_encoded);
@@ -363,16 +369,20 @@ impl Locations {
 
 /// A mapping; `symbolized` says whether its locations carry their
 /// functions and lines already
-fn encode_mapping(strings: &mut Strings, id: u64, m: &Mapping, symbolized: u64) -> Vec<u8> {
+/// `complete`: whether every location in the mapping has functions, file
+/// names and line numbers
+fn encode_mapping(strings: &mut Strings, id: u64, m: &Mapping, complete: [bool; 3]) -> Vec<u8> {
+    let [functions, filenames, lines] = complete;
     let mut b = Vec::new();
     uint(&mut b, 1, id);
     uint(&mut b, 2, m.start);
     uint(&mut b, 3, m.limit);
     uint(&mut b, 4, m.offset);
     uint(&mut b, 5, strings.id(&m.path));
-    for field in 7..=10 {
-        uint(&mut b, field, symbolized);
-    }
+    uint(&mut b, 7, u64::from(functions));
+    uint(&mut b, 8, u64::from(filenames));
+    uint(&mut b, 9, u64::from(lines));
+    uint(&mut b, 10, u64::from(filenames));
     let mut out = Vec::new();
     bytes(&mut out, 3, &b);
     out
@@ -380,7 +390,27 @@ fn encode_mapping(strings: &mut Strings, id: u64, m: &Mapping, symbolized: u64) 
 
 #[cfg(all(test, feature = "symbolize"))]
 mod tests {
-    use super::{Line, is_internal, simplify};
+    use super::{Line, Strings, encode_mapping, is_internal, simplify};
+    use crate::prof::maps::Mapping;
+
+    /// Functions found say nothing of file names or lines: a library
+    /// with a symbol table and no debug information has only functions
+    #[test]
+    fn mapping_flags_are_separate() {
+        let m = Mapping {
+            start: 0x1000,
+            limit: 0x2000,
+            offset: 0,
+            path: "/lib/x.so".into(),
+        };
+        let b = encode_mapping(&mut Strings::default(), 1, &m, [true, false, true]);
+        // Fields 7 to 10 are varints; a false one is left out
+        let has = |field: u8| b.windows(2).any(|w| w == [field << 3, 1]);
+        assert!(has(7), "has_functions");
+        assert!(!has(8), "has_filenames");
+        assert!(has(9), "has_line_numbers");
+        assert!(!has(10), "has_inline_frames");
+    }
 
     fn line(name: &str, file: &str) -> Line {
         Line {

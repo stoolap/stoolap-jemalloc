@@ -40,8 +40,9 @@ fn check(p: *const u8, len: usize, seed: u8) {
     }
 }
 
+/// Sizes from 1: `GlobalAlloc` is never asked for 0 bytes
 fn sizes() -> Vec<usize> {
-    let mut v: Vec<usize> = (0..=256).collect();
+    let mut v: Vec<usize> = (1..=256).collect();
     let mut s = 257;
     while s <= 8 << 20 {
         v.extend([s - 1, s, s + 1, s * 3 / 2]);
@@ -218,7 +219,7 @@ fn stress_random() {
                 for _ in 0..200_000 {
                     let r = next();
                     if live.len() < 2000 && r % 3 != 0 {
-                        let size = match r % 100 {
+                        let size = 1 + match r % 100 {
                             0 => (next() % (3 << 20)) as usize,
                             1..=5 => (next() % 100_000) as usize,
                             _ => (next() % 512) as usize,

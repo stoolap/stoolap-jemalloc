@@ -19,17 +19,42 @@
 //! after it in both processes.
 
 use crate::{arena, base, huge, prof, tcache};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicU64, Ordering};
 
-/// Registers the handlers once; called when the first thread cache is
-/// made, which comes before any fork
+/// Registration: 0 before it, `DONE` after it, and the registering
+/// process's id in between
+static STATE: AtomicU64 = AtomicU64::new(0);
+const DONE: u64 = u64::MAX;
+
+/// Registers the handlers once; called whenever a thread cache is made, so
+/// before any thread of the allocator's can fork. Threads that come while
+/// another registers wait for it: a fork in between would run without the
+/// handlers.
 pub(crate) fn register() {
-    static DONE: AtomicBool = AtomicBool::new(false);
-    if DONE.swap(true, Ordering::Relaxed) {
+    if STATE.load(Ordering::Acquire) == DONE {
         return;
     }
-    unsafe {
-        libc::pthread_atfork(Some(prepare), Some(parent), Some(child));
+    let me = u64::from(std::process::id());
+    loop {
+        match STATE.load(Ordering::Acquire) {
+            DONE => return,
+            // Forked while the parent registered: the registering thread
+            // is not in this process, so this one registers instead
+            s if s == 0 || s != me => {
+                if STATE
+                    .compare_exchange(s, me, Ordering::Acquire, Ordering::Acquire)
+                    .is_ok()
+                {
+                    let ok =
+                        unsafe { libc::pthread_atfork(Some(prepare), Some(parent), Some(child)) }
+                            == 0;
+                    // Without handlers the next thread cache tries again
+                    STATE.store(if ok { DONE } else { 0 }, Ordering::Release);
+                    return;
+                }
+            }
+            _ => std::thread::yield_now(),
+        }
     }
 }
 

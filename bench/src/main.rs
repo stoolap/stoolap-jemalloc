@@ -207,7 +207,7 @@ fn main() {
     }
     if want("producer") {
         run("producer_consumer", || {
-            producer_consumer(threads() / 2, 2_000)
+            producer_consumer((threads() / 2).max(1), 2_000)
         });
     }
     println!(

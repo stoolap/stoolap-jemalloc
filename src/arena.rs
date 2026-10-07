@@ -563,14 +563,18 @@ pub(crate) unsafe fn fork_child(own: *mut Arena) {
 
 /// Ends a decay epoch across all arenas if one is due; cheap otherwise
 pub unsafe fn decay_tick() {
-    let base = BASE.get_or_init(Instant::now);
-    let now = base.elapsed().as_nanos() as u64;
+    // Before the first epoch there is no base and NEXT_EPOCH is 0, so the
+    // first call goes on to the lock
+    let now = BASE.get().map_or(0, |b| b.elapsed().as_nanos() as u64);
     if now < NEXT_EPOCH.load(Ordering::Relaxed) {
         return;
     }
     let Some(_decay) = DECAY.try_lock() else {
         return;
     };
+    // Set under the decay lock, which `fork` holds: a child never finds it
+    // half set by a thread that did not come along
+    let now = BASE.get_or_init(Instant::now).elapsed().as_nanos() as u64;
     if now < NEXT_EPOCH.load(Ordering::Relaxed) {
         return;
     }
