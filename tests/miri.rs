@@ -26,7 +26,7 @@ use std::thread;
 use stoolap_jemalloc::Jemalloc;
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 #[test]
 fn thread_cache_round_trip() {

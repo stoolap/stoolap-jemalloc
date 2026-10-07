@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use stoolap_jemalloc::{Jemalloc, background, prof};
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 static STOP: AtomicBool = AtomicBool::new(false);
 

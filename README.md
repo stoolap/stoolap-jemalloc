@@ -60,10 +60,29 @@ stoolap-jemalloc = { git = "https://github.com/stoolap/stoolap-jemalloc" }
 use stoolap_jemalloc::Jemalloc;
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 ```
 
 ## Heap profiling
+
+To profile the whole process, turn profiling on in the allocator itself.
+It then samples from the process's first allocation, as jemalloc's
+`prof:true,prof_active:true` options do:
+
+```rust
+use stoolap_jemalloc::{Jemalloc, prof};
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc::new().with_profiling();
+
+fn main() -> Result<(), prof::DumpError> {
+    // ... the program runs ...
+    prof::write_pprof("heap.pb")?;
+    Ok(())
+}
+```
+
+Or switch it on at run time:
 
 ```rust
 use stoolap_jemalloc::prof;
@@ -112,6 +131,7 @@ dump: its mapping is marked as not symbolized.
 
 | Function                        | Purpose                              |
 |---------------------------------|--------------------------------------|
+| `Jemalloc::new().with_profiling()` | An allocator that samples from the first allocation |
 | `prof::activate()`              | Start sampling                       |
 | `prof::deactivate()`            | Stop sampling; live samples stay     |
 | `prof::is_active()`             | Whether sampling is on               |
@@ -126,7 +146,8 @@ the file cannot be written.
 
 Notes:
 
-- Allocations made before `activate()` are not in the profile.
+- With `prof::activate()`, allocations made before the call are not in
+  the profile; `with_profiling()` leaves none out.
 - Threads created while profiling is active sample from their first
   allocation. Threads that existed before notice activation within 1 MiB
   of their own allocations. Until then, the allocation fast path carries
@@ -381,6 +402,7 @@ The tests cover:
 - statistics, purging and the expiry of cached huge mappings
 - decay on systems whose OS pages hold several allocator pages
 - the profiler, with every allocation sampled
+- profiling on from the first allocation, with `with_profiling()`
 - the profiler's estimates against known allocation counts, across
   changes of the sample interval and over many short-lived threads
 - functions whose simplified names collide

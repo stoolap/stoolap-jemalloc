@@ -28,7 +28,9 @@ use core::ptr::{self, null_mut};
 use core::sync::atomic::Ordering::Relaxed;
 
 #[inline(always)]
-pub unsafe fn alloc(size: usize, align: usize) -> *mut u8 {
+/// `profiling` is the allocator's setting to sample from the first
+/// allocation on; it only matters on the slow path
+pub unsafe fn alloc(size: usize, align: usize, profiling: bool) -> *mut u8 {
     if align <= 8 && size <= TCACHE_MAX {
         let class = class_of(size);
         let t = tcache::current();
@@ -46,11 +48,16 @@ pub unsafe fn alloc(size: usize, align: usize) -> *mut u8 {
             }
         }
     }
-    alloc_slow(size, align, false)
+    alloc_slow(size, align, false, profiling)
 }
 
 #[inline(never)]
-pub unsafe fn alloc_slow(size: usize, align: usize, zero: bool) -> *mut u8 {
+pub unsafe fn alloc_slow(size: usize, align: usize, zero: bool, profiling: bool) -> *mut u8 {
+    // The process's first allocation comes this way, before any thread
+    // cache exists, so its cache already samples
+    if profiling && !prof::EVER.load(Relaxed) {
+        prof::activate();
+    }
     let class = if align <= PAGE {
         class_for(size, align)
     } else {
@@ -102,15 +109,15 @@ pub unsafe fn alloc_slow(size: usize, align: usize, zero: bool) -> *mut u8 {
 }
 
 #[inline]
-pub unsafe fn alloc_zeroed(size: usize, align: usize) -> *mut u8 {
+pub unsafe fn alloc_zeroed(size: usize, align: usize, profiling: bool) -> *mut u8 {
     if align <= 8 && size <= TCACHE_MAX {
-        let p = alloc(size, align);
+        let p = alloc(size, align, profiling);
         if !p.is_null() {
             ptr::write_bytes(p, 0, size);
         }
         p
     } else {
-        alloc_slow(size, align, true)
+        alloc_slow(size, align, true, profiling)
     }
 }
 
@@ -163,20 +170,32 @@ unsafe fn dealloc_slow(ptr: *mut u8, size: usize, align: usize) {
 }
 
 #[inline]
-pub unsafe fn realloc(ptr: *mut u8, size: usize, align: usize, new_size: usize) -> *mut u8 {
+pub unsafe fn realloc(
+    ptr: *mut u8,
+    size: usize,
+    align: usize,
+    new_size: usize,
+    profiling: bool,
+) -> *mut u8 {
     let ptr = owned(ptr);
     // Cached classes move through the thread cache's fast paths
     if align <= 8 && size <= TCACHE_MAX && new_size <= TCACHE_MAX && !is_sampled(ptr) {
         if class_of(size) == class_of(new_size) {
             return ptr;
         }
-        return realloc_move(ptr, size, align, new_size);
+        return realloc_move(ptr, size, align, new_size, profiling);
     }
-    realloc_slow(ptr, size, align, new_size)
+    realloc_slow(ptr, size, align, new_size, profiling)
 }
 
 #[inline(never)]
-unsafe fn realloc_slow(ptr: *mut u8, size: usize, align: usize, new_size: usize) -> *mut u8 {
+unsafe fn realloc_slow(
+    ptr: *mut u8,
+    size: usize,
+    align: usize,
+    new_size: usize,
+    profiling: bool,
+) -> *mut u8 {
     if !is_sampled(ptr) && align <= PAGE {
         match (class_for(size, align), class_for(new_size, align)) {
             (Some(a), Some(b)) => {
@@ -196,12 +215,18 @@ unsafe fn realloc_slow(ptr: *mut u8, size: usize, align: usize, new_size: usize)
             _ => {}
         }
     }
-    realloc_move(ptr, size, align, new_size)
+    realloc_move(ptr, size, align, new_size, profiling)
 }
 
 #[inline(always)]
-unsafe fn realloc_move(ptr: *mut u8, size: usize, align: usize, new_size: usize) -> *mut u8 {
-    let new = alloc(new_size, align);
+unsafe fn realloc_move(
+    ptr: *mut u8,
+    size: usize,
+    align: usize,
+    new_size: usize,
+    profiling: bool,
+) -> *mut u8 {
+    let new = alloc(new_size, align, profiling);
     if !new.is_null() {
         ptr::copy_nonoverlapping(ptr, new, size.min(new_size));
         dealloc(ptr, size, align);

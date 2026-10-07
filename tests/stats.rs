@@ -18,7 +18,7 @@
 use stoolap_jemalloc::Jemalloc;
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 #[test]
 fn stats_follow_huge_allocations_and_purge() {

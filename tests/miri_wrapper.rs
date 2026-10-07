@@ -23,6 +23,9 @@ use stoolap_jemalloc::Jemalloc;
 
 struct Reclaiming;
 
+/// The allocator that `Reclaiming` wraps
+const INNER: Jemalloc = Jemalloc::new();
+
 static RECLAIM: AtomicBool = AtomicBool::new(false);
 
 #[global_allocator]
@@ -30,19 +33,19 @@ static GLOBAL: Reclaiming = Reclaiming;
 
 unsafe impl GlobalAlloc for Reclaiming {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe { Jemalloc.alloc(layout) }
+        unsafe { INNER.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { Jemalloc.dealloc(ptr, layout) };
+        unsafe { INNER.dealloc(ptr, layout) };
         if RECLAIM.load(Ordering::Relaxed) {
             if layout.size() > 1 << 20 {
                 // Takes the huge mapping just freed back out of the cache
                 // and zeroes it
                 unsafe {
-                    let again = Jemalloc.alloc_zeroed(layout);
+                    let again = INNER.alloc_zeroed(layout);
                     assert!(!again.is_null());
-                    Jemalloc.dealloc(again, layout);
+                    INNER.dealloc(again, layout);
                 }
             } else {
                 // Writes free-list links into the object just freed

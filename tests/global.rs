@@ -22,7 +22,7 @@ use std::thread;
 use stoolap_jemalloc::Jemalloc;
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 fn fill(p: *mut u8, len: usize, seed: u8) {
     for i in 0..len {

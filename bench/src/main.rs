@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "ours")]
 #[global_allocator]
-static GLOBAL: stoolap_jemalloc::Jemalloc = stoolap_jemalloc::Jemalloc;
+static GLOBAL: stoolap_jemalloc::Jemalloc = stoolap_jemalloc::Jemalloc::new();
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

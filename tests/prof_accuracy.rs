@@ -25,7 +25,7 @@ use std::thread;
 use stoolap_jemalloc::{Jemalloc, prof};
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 const ALLOC_OBJECTS: usize = 0;
 const INUSE_OBJECTS: usize = 2;

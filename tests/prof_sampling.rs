@@ -21,7 +21,7 @@ use std::hint::black_box;
 use stoolap_jemalloc::{Jemalloc, prof};
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 /// Allocates through a chain of `left` and `right` calls spelled by the
 /// bits of `path`, so that each path makes a stack of its own

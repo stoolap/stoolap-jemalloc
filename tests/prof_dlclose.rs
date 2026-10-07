@@ -24,7 +24,7 @@ use std::thread;
 use stoolap_jemalloc::{Jemalloc, prof};
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 static STOP: AtomicBool = AtomicBool::new(false);
 

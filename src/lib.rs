@@ -19,7 +19,7 @@
 //! use stoolap_jemalloc::Jemalloc;
 //!
 //! #[global_allocator]
-//! static GLOBAL: Jemalloc = Jemalloc;
+//! static GLOBAL: Jemalloc = Jemalloc::new();
 //!
 //! fn main() {
 //!     stoolap_jemalloc::prof::activate();
@@ -57,14 +57,40 @@ pub use stats::{Stats, stats};
 
 use core::alloc::{GlobalAlloc, Layout};
 
-/// The allocator; install it with `#[global_allocator]`
+/// The allocator; install it with `#[global_allocator]`:
+///
+/// ```no_run
+/// use stoolap_jemalloc::Jemalloc;
+///
+/// #[global_allocator]
+/// static GLOBAL: Jemalloc = Jemalloc::new();
+/// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Jemalloc;
+pub struct Jemalloc {
+    profiling: bool,
+}
+
+impl Jemalloc {
+    /// The allocator, with heap profiling off until `prof::activate()`
+    #[must_use]
+    pub const fn new() -> Self {
+        Jemalloc { profiling: false }
+    }
+
+    /// The allocator with heap profiling on from the process's first
+    /// allocation, as jemalloc's `prof:true,prof_active:true` options
+    /// set it, without a call to `prof::activate()`.
+    /// `prof::deactivate()` still stops it.
+    #[must_use]
+    pub const fn with_profiling(self) -> Self {
+        Jemalloc { profiling: true }
+    }
+}
 
 unsafe impl GlobalAlloc for Jemalloc {
     #[inline(always)]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        malloc::alloc(layout.size(), layout.align())
+        malloc::alloc(layout.size(), layout.align(), self.profiling)
     }
 
     #[inline(always)]
@@ -74,12 +100,12 @@ unsafe impl GlobalAlloc for Jemalloc {
 
     #[inline(always)]
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        malloc::alloc_zeroed(layout.size(), layout.align())
+        malloc::alloc_zeroed(layout.size(), layout.align(), self.profiling)
     }
 
     #[inline]
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        malloc::realloc(ptr, layout.size(), layout.align(), new_size)
+        malloc::realloc(ptr, layout.size(), layout.align(), new_size, self.profiling)
     }
 }
 

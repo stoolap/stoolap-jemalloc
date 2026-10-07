@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use stoolap_jemalloc::{Jemalloc, background};
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 #[test]
 fn returns_memory_while_the_process_is_idle() {

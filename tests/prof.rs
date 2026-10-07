@@ -19,7 +19,7 @@ use std::thread;
 use stoolap_jemalloc::{Jemalloc, prof};
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 #[inline(never)]
 fn leaky_function(n: usize) -> Vec<Vec<u8>> {

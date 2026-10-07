@@ -22,7 +22,7 @@ use std::hint::black_box;
 use stoolap_jemalloc::{Jemalloc, prof};
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: Jemalloc = Jemalloc::new();
 
 extern "C" fn allocate_from_library() {
     std::mem::forget(black_box(vec![5u8; 64 << 10]));
