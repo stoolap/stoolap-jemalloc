@@ -68,6 +68,11 @@ fn four_kib_blocks(n: usize) -> Vec<*mut u8> {
 }
 
 #[inline(never)]
+fn huge_block() -> Vec<u8> {
+    black_box(vec![1u8; (1 << 20) + 1])
+}
+
+#[inline(never)]
 fn one_block_after_a_raise() -> Vec<u8> {
     black_box(vec![1u8; 4096])
 }
@@ -140,6 +145,17 @@ fn estimates_match_the_allocations() {
     let live = totals("first_block_of_a_thread")[INUSE_BYTES];
     assert!(live >= 160 << 20, "{live} live bytes for 160 MiB");
     drop(blocks);
+
+    // A huge allocation counts the pages it takes, not the bytes asked for.
+    // This thread last drew a wait before the interval became 1.
+    drop(black_box(vec![0u8; 1 << 20]));
+    let block = huge_block();
+    let live = totals("huge_block")[INUSE_BYTES];
+    assert!(
+        live > (1 << 20) + 1 && live <= (1 << 20) + (64 << 10) && live.is_multiple_of(4096),
+        "{live} live bytes for 1 MiB and a byte"
+    );
+    drop(block);
 
     // Functions are told apart by their full names and files, though two
     // traits' methods on one type can simplify to the same name

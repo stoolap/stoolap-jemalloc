@@ -64,9 +64,17 @@ pub unsafe fn alloc_slow(size: usize, align: usize, zero: bool, profiling: bool)
         None
     };
     let t = tcache::get_or_init();
-    let usable = class.map_or(size, |c| CLASS_SIZE[c] as usize);
+    // What the allocation takes from the heap
+    let usable = match class {
+        Some(c) => CLASS_SIZE[c] as usize,
+        None => aligned_run(size, align).unwrap_or(os::round_up(size.max(1), os::page_size())),
+    };
     if let Some(interval) = count(t, usable) {
-        return prof::sample_alloc(size, align, zero, usable, interval);
+        let p = prof::sample_alloc(size, align, zero, usable, interval);
+        // Short of the profiler's own memory, it is made unsampled
+        if !p.is_null() {
+            return p;
+        }
     }
     let arena = if t.is_null() {
         arena::fallback()
@@ -83,7 +91,7 @@ pub unsafe fn alloc_slow(size: usize, align: usize, zero: bool, profiling: bool)
         }
         Some(c) => (*arena).alloc_large(c),
         // Aligned beyond a page: a run with room to align in, if it fits
-        None if align > PAGE && os::round_up(size.max(1), PAGE) + align - PAGE <= LARGE_MAX => {
+        None if aligned_run(size, align).is_some() => {
             let run = arena::alloc_aligned(&*arena, size, align);
             if run.is_null() {
                 null_mut()
@@ -97,6 +105,14 @@ pub unsafe fn alloc_slow(size: usize, align: usize, zero: bool, profiling: bool)
         ptr::write_bytes(p, 0, size);
     }
     p
+}
+
+/// The length of the run an allocation aligned beyond a page takes, with
+/// room to align in, when it fits in one
+#[inline]
+fn aligned_run(size: usize, align: usize) -> Option<usize> {
+    let len = os::round_up(size.max(1), PAGE) + align - PAGE;
+    (align > PAGE && len <= LARGE_MAX).then_some(len)
 }
 
 /// Counts an allocation of `usable` bytes towards the thread's next
@@ -260,7 +276,7 @@ unsafe fn realloc_slow(
                 }
             }
             (None, None) if huge::resize_in_place(ptr, new_size) => {
-                return realloc_kept(ptr, size, align, new_size, new_size);
+                return realloc_kept(ptr, size, align, new_size, (*huge::head(ptr)).usable);
             }
             _ => {}
         }

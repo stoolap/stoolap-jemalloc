@@ -249,14 +249,17 @@ fn stress_random() {
     }
 }
 
+/// A purge while other tests allocate alongside leaves the purged runs
+/// usable; how much it returns is checked in `stats.rs`, alone
 #[test]
-fn purge_returns_memory() {
+fn purge_while_threads_allocate() {
     let blocks: Vec<Vec<u8>> = (0..64).map(|i| vec![i as u8; 600_000]).collect();
     drop(blocks);
     stoolap_jemalloc::purge();
-    // Other tests run alongside, so only the totals can be checked
-    let s = stoolap_jemalloc::stats();
-    assert!(s.chunks > 0 && s.metadata > 0);
+    let blocks: Vec<Vec<u8>> = (0..64).map(|i| vec![i as u8; 600_000]).collect();
+    for (i, b) in blocks.iter().enumerate() {
+        assert!(b[0] == i as u8 && b[599_999] == i as u8);
+    }
 }
 
 static LATE_DROPS: AtomicUsize = AtomicUsize::new(0);

@@ -246,7 +246,8 @@ allows it.
 ### Thread caches
 
 Each thread keeps a stack of free objects for every class up to 32 KiB.
-Each stack holds at most 200 objects or 16 KiB.
+A stack of a small class holds up to 200 objects or 16 KiB, and at least
+8 objects; a stack of a larger class holds 4.
 
 - Allocations and frees on a cache hit touch no lock and no shared memory.
 - Full caches flush their oldest half to the arenas in one batch.

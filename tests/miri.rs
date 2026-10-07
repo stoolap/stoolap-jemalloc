@@ -28,6 +28,7 @@ use stoolap_jemalloc::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc::new();
 
+/// A freed block is the next one the thread's cache hands out
 #[test]
 fn thread_cache_round_trip() {
     let layout = Layout::from_size_align(8, 8).unwrap();
@@ -36,6 +37,7 @@ fn thread_cache_round_trip() {
         p.write(1);
         GLOBAL.dealloc(p, layout);
         let q = GLOBAL.alloc(layout);
+        assert_eq!(q, p);
         q.write(2);
         GLOBAL.dealloc(q, layout);
     }
@@ -120,4 +122,36 @@ fn frees_while_a_thread_exits() {
     })
     .join()
     .unwrap();
+}
+
+/// Blocks freed by another thread than the one that allocated them, while
+/// that one keeps allocating: the freeing thread's flushes write free list
+/// links into slabs the other refills from, and its frees merge runs that
+/// the other's arena split
+#[test]
+fn frees_on_another_thread() {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<(Vec<Box<[u64; 4]>>, Vec<Vec<u8>>)>(2);
+    let producer = thread::spawn(move || {
+        for round in 0..4u64 {
+            // More small blocks than a cache holds, so the consumer flushes
+            let small = (0..300).map(|i| Box::new([round, i, 1, 2])).collect();
+            let large = (0..2)
+                .map(|i| vec![round as u8; 40_000 + 4096 * i])
+                .collect();
+            tx.send((small, large)).unwrap();
+        }
+    });
+    let consumer = thread::spawn(move || {
+        for (small, large) in rx {
+            for b in small {
+                assert_eq!(b[2] + b[3], 3);
+            }
+            for v in large {
+                assert_eq!(v[0], v[v.len() - 1]);
+            }
+        }
+    });
+    producer.join().unwrap();
+    consumer.join().unwrap();
+    stoolap_jemalloc::purge();
 }
