@@ -42,6 +42,7 @@ fn register_with(registered: impl FnOnce()) {
         return;
     }
     let me = u64::from(std::process::id());
+    let mut waiting_since = None;
     loop {
         match STATE.load(Ordering::Acquire) {
             DONE => return,
@@ -63,7 +64,17 @@ fn register_with(registered: impl FnOnce()) {
                     return;
                 }
             }
-            _ => std::thread::yield_now(),
+            // Another thread of this process registers. One that does
+            // for over a second is gone: a fork came in its window and
+            // this process got the forking parent's id after it exited.
+            // Its claim is dropped, and the loop registers again.
+            _ => {
+                let since = *waiting_since.get_or_insert_with(std::time::Instant::now);
+                if since.elapsed() > std::time::Duration::from_secs(1) {
+                    let _ = STATE.compare_exchange(me, 0, Ordering::AcqRel, Ordering::Acquire);
+                }
+                std::thread::yield_now();
+            }
         }
     }
 }
@@ -132,6 +143,21 @@ mod tests {
         } else {
             3
         }
+    }
+
+    /// A claim left by a registering thread that is in no process any
+    /// more, with this process's id, is taken over after a second
+    #[test]
+    fn stale_claim_is_taken_over() {
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0);
+        if pid == 0 {
+            STATE.store(u64::from(std::process::id()), Ordering::Release);
+            register();
+            let done = STATE.load(Ordering::Acquire) == super::DONE;
+            unsafe { libc::_exit(i32::from(!done)) };
+        }
+        assert_eq!(wait(pid), 0, "register() waited on the stale claim");
     }
 
     /// A fork after the handlers were registered but before that was

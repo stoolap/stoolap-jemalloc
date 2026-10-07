@@ -158,8 +158,9 @@ struct Stacks {
     all: *mut Stack,
 }
 
-/// Held through a dump, and across `fork` before every other lock: the
-/// symbolizer's own lock, which a dump takes, is then free in the child
+/// Held through a dump, and across `fork` before every other lock: no
+/// dump of this crate's then holds the symbolizer's lock in the child.
+/// Other users of the `backtrace` crate can still hold it at a fork.
 static DUMP: SpinLock<()> = SpinLock::new(());
 
 static STACKS: SpinLock<Stacks> = SpinLock::new(Stacks {
