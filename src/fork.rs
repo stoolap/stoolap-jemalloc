@@ -31,6 +31,13 @@ const DONE: u64 = u64::MAX;
 /// another registers wait for it: a fork in between would run without the
 /// handlers.
 pub(crate) fn register() {
+    register_with(|| {});
+}
+
+/// `registered` runs between the registration and its record, where tests
+/// fork
+#[inline(always)]
+fn register_with(registered: impl FnOnce()) {
     if STATE.load(Ordering::Acquire) == DONE {
         return;
     }
@@ -48,6 +55,9 @@ pub(crate) fn register() {
                     let ok =
                         unsafe { libc::pthread_atfork(Some(prepare), Some(parent), Some(child)) }
                             == 0;
+                    if ok {
+                        registered();
+                    }
                     // Without handlers the next thread cache tries again
                     STATE.store(if ok { DONE } else { 0 }, Ordering::Release);
                     return;
@@ -83,6 +93,9 @@ unsafe extern "C" fn parent() {
 }
 
 unsafe extern "C" fn child() {
+    // The handlers ran, so they are registered in this process too, though
+    // the fork may have come before the parent recorded it
+    STATE.store(DONE, Ordering::Release);
     unsafe {
         unlock_all();
         let t = tcache::current();
@@ -93,4 +106,55 @@ unsafe extern "C" fn child() {
         });
     }
     crate::background::fork_child();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{STATE, register, register_with};
+    use core::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+
+    /// Exits with 0 if `pid` exits with 0 within 10 seconds; kills it and
+    /// exits with 2 if not
+    fn wait(pid: libc::pid_t) -> i32 {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut status = 0;
+        while unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) } != pid {
+            if Instant::now() > deadline {
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+                unsafe { libc::waitpid(pid, &raw mut status, 0) };
+                return 2;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        if libc::WIFEXITED(status) {
+            libc::WEXITSTATUS(status)
+        } else {
+            3
+        }
+    }
+
+    /// A fork after the handlers were registered but before that was
+    /// recorded: the child must not register them again, or its next fork
+    /// would run them twice and wait on a lock that the first run holds
+    #[test]
+    fn fork_between_registration_and_its_record() {
+        assert_eq!(STATE.load(Ordering::Acquire), 0, "nothing registered yet");
+        let mut code = -1;
+        register_with(|| {
+            let pid = unsafe { libc::fork() };
+            assert!(pid >= 0);
+            if pid == 0 {
+                // A new thread cache in the child registers again
+                register();
+                let pid = unsafe { libc::fork() };
+                if pid == 0 {
+                    unsafe { libc::_exit(0) };
+                }
+                unsafe { libc::_exit(wait(pid)) };
+            }
+            code = wait(pid);
+        });
+        assert_eq!(code, 0, "the child's next fork did not finish");
+    }
 }
