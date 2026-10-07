@@ -139,10 +139,13 @@ fn simplify(name: &str) -> String {
         });
         match c {
             '<' => {
-                // `Vec<T>` and `f::<T>` are generic; `<impl Trait for T>` is not
+                // `Vec<T>`, `f::<T>` and `{closure#0}<T>` are generic;
+                // `<impl Trait for T>` is not
                 let generic = skipping
                     || (!rest.starts_with("<impl ")
-                        && out.ends_with(|p: char| p.is_alphanumeric() || p == '_' || p == ':'));
+                        && out.ends_with(|p: char| {
+                            p.is_alphanumeric() || p == '_' || p == ':' || p == '}'
+                        }));
                 if generic && !skipping && out.ends_with("::") {
                     out.truncate(out.len() - 2);
                 }
@@ -431,6 +434,11 @@ mod tests {
             (
                 "core::ptr::drop_in_place::<alloc::vec::Vec<u8>>",
                 "core::ptr::drop_in_place",
+            ),
+            // An inlined closure's name, as debug information has it
+            (
+                "{closure#0}<i32, alloc::boxed::Box<[u8; 64], alloc::alloc::Global>, ()>",
+                "{closure#0}",
             ),
         ];
         for (name, want) in cases {
