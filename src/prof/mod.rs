@@ -146,6 +146,10 @@ struct Stacks {
     all: *mut Stack,
 }
 
+/// Held through a dump, and across `fork` before every other lock: the
+/// symbolizer's own lock, which a dump takes, is then free in the child
+static DUMP: SpinLock<()> = SpinLock::new(());
+
 static STACKS: SpinLock<Stacks> = SpinLock::new(Stacks {
     table: null_mut(),
     cap: 0,
@@ -220,6 +224,17 @@ impl Stacks {
         self.cap = cap;
         true
     }
+}
+
+#[cfg(all(unix, not(miri)))]
+/// Waits for a dump to end and holds off the next until after `fork`
+pub(crate) fn fork_lock_dump() {
+    DUMP.acquire();
+}
+
+#[cfg(all(unix, not(miri)))]
+pub(crate) unsafe fn fork_unlock_dump() {
+    DUMP.release();
 }
 
 #[cfg(all(unix, not(miri)))]
@@ -396,6 +411,7 @@ pub fn dump_pprof() -> Result<Vec<u8>, DumpError> {
     if !EVER.load(Ordering::Relaxed) {
         return Err(DumpError::NotActivated);
     }
+    let _dump = DUMP.lock();
     let profile = pprof::encode(&snapshot(), sample_interval());
     // The symbolizer keeps the debug information it parsed, tens of
     // megabytes for a large library

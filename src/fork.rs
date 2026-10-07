@@ -34,6 +34,7 @@ pub(crate) fn register() {
 }
 
 unsafe extern "C" fn prepare() {
+    prof::fork_lock_dump();
     arena::fork_lock();
     huge::fork_lock();
     prof::fork_lock();
@@ -48,6 +49,7 @@ unsafe fn unlock_all() {
         prof::fork_unlock();
         huge::fork_unlock();
         arena::fork_unlock();
+        prof::fork_unlock_dump();
     }
 }
 

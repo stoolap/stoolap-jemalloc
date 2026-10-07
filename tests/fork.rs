@@ -74,7 +74,13 @@ fn fork_while_other_threads_allocate() {
     prof::activate();
     // Forks also happen while it holds the decay lock
     background::start();
-    let workers: Vec<_> = (0..4).map(|t| thread::spawn(move || churn(t))).collect();
+    let mut workers: Vec<_> = (0..4).map(|t| thread::spawn(move || churn(t))).collect();
+    // And while a dump holds the symbolizer's lock
+    workers.push(thread::spawn(|| {
+        while !STOP.load(Ordering::Relaxed) {
+            black_box(prof::dump_pprof().unwrap());
+        }
+    }));
     // At least 20 forks, then until 3 seconds or 200 forks: without the
     // fork handlers, the first few children already fail
     let start = Instant::now();
