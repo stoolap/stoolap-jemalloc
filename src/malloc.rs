@@ -64,18 +64,9 @@ pub unsafe fn alloc_slow(size: usize, align: usize, zero: bool, profiling: bool)
         None
     };
     let t = tcache::get_or_init();
-    if !t.is_null() {
-        let t = &mut *t;
-        // Counted as the bytes it takes; capped far above any allocation
-        // that can succeed, so that the counters cannot overflow
-        let usable = class.map_or(size, |c| CLASS_SIZE[c] as usize);
-        let bytes = (usable as u64).min(1 << 48) as i64;
-        t.until_event -= bytes;
-        if t.until_event < 0
-            && let Some(interval) = tcache::event(t, bytes)
-        {
-            return prof::sample_alloc(size, align, zero, usable, interval);
-        }
+    let usable = class.map_or(size, |c| CLASS_SIZE[c] as usize);
+    if let Some(interval) = count(t, usable) {
+        return prof::sample_alloc(size, align, zero, usable, interval);
     }
     let arena = if t.is_null() {
         arena::fallback()
@@ -106,6 +97,26 @@ pub unsafe fn alloc_slow(size: usize, align: usize, zero: bool, profiling: bool)
         ptr::write_bytes(p, 0, size);
     }
     p
+}
+
+/// Counts an allocation of `usable` bytes towards the thread's next
+/// event. Returns the interval to weigh a sample of it with, when it is to
+/// be sampled.
+#[inline]
+unsafe fn count(t: *mut tcache::TCache, usable: usize) -> Option<usize> {
+    if t.is_null() {
+        return None;
+    }
+    let t = &mut *t;
+    // Capped far above any allocation that can succeed, so that the
+    // counters cannot overflow
+    let bytes = (usable as u64).min(1 << 48) as i64;
+    t.until_event -= bytes;
+    if t.until_event < 0 {
+        tcache::event(t, bytes)
+    } else {
+        None
+    }
 }
 
 #[inline]
@@ -180,12 +191,50 @@ pub unsafe fn realloc(
     let ptr = owned(ptr);
     // Cached classes move through the thread cache's fast paths
     if align <= 8 && size <= TCACHE_MAX && new_size <= TCACHE_MAX && !is_sampled(ptr) {
-        if class_of(size) == class_of(new_size) {
-            return ptr;
+        let class = class_of(new_size);
+        if class_of(size) == class {
+            // Counted as an allocation in place, as below, without a slow
+            // path while no event is due
+            let t = tcache::current();
+            if !t.is_null() {
+                let t = &mut *t;
+                let left = t.until_event - i64::from(*CLASS_SIZE.get_unchecked(class));
+                if left >= 0 {
+                    t.until_event = left;
+                    return ptr;
+                }
+            }
+            return realloc_kept(ptr, size, align, new_size, CLASS_SIZE[class] as usize);
         }
         return realloc_move(ptr, size, align, new_size, profiling);
     }
     realloc_slow(ptr, size, align, new_size, profiling)
+}
+
+/// A reallocation that kept its memory counts as an allocation of the new
+/// size, as one that moves does: otherwise memory reallocated in place would
+/// never be sampled, while a sample that moves must be drawn again, and
+/// profiles would miss live memory. When this one is to be sampled, it
+/// moves into a sampled allocation.
+#[cold]
+unsafe fn realloc_kept(
+    ptr: *mut u8,
+    size: usize,
+    align: usize,
+    new_size: usize,
+    usable: usize,
+) -> *mut u8 {
+    let Some(interval) = count(tcache::current(), usable) else {
+        return ptr;
+    };
+    let new = prof::sample_alloc(new_size, align, false, usable, interval);
+    if new.is_null() {
+        // The memory is still the caller's, resized
+        return ptr;
+    }
+    ptr::copy_nonoverlapping(ptr, new, size.min(new_size));
+    dealloc(ptr, new_size, align);
+    new
 }
 
 #[inline(never)]
@@ -199,18 +248,19 @@ unsafe fn realloc_slow(
     if !is_sampled(ptr) && align <= PAGE {
         match (class_for(size, align), class_for(new_size, align)) {
             (Some(a), Some(b)) => {
+                let usable = CLASS_SIZE[b] as usize;
                 if a == b {
-                    return ptr;
+                    return realloc_kept(ptr, size, align, new_size, usable);
                 }
                 if a >= NSMALL && b >= NSMALL {
                     let c = ArenaChunk::of(ptr);
                     if (*(*c).arena).resize_large(c, ptr, b) {
-                        return ptr;
+                        return realloc_kept(ptr, size, align, new_size, usable);
                     }
                 }
             }
             (None, None) if huge::resize_in_place(ptr, new_size) => {
-                return ptr;
+                return realloc_kept(ptr, size, align, new_size, new_size);
             }
             _ => {}
         }
