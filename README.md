@@ -12,6 +12,8 @@
 
   <p>
     <a href="https://github.com/stoolap/stoolap-jemalloc/actions/workflows/ci.yml"><img src="https://github.com/stoolap/stoolap-jemalloc/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://crates.io/crates/stoolap-jemalloc"><img src="https://img.shields.io/crates/v/stoolap-jemalloc.svg" alt="Crates.io"></a>
+    <a href="https://docs.rs/stoolap-jemalloc"><img src="https://docs.rs/stoolap-jemalloc/badge.svg" alt="docs.rs"></a>
     <a href="https://codecov.io/gh/stoolap/stoolap-jemalloc"><img src="https://codecov.io/gh/stoolap/stoolap-jemalloc/branch/main/graph/badge.svg" alt="codecov"></a>
     <a href="https://github.com/stoolap/stoolap-jemalloc/actions/workflows/audit.yml"><img src="https://github.com/stoolap/stoolap-jemalloc/actions/workflows/audit.yml/badge.svg" alt="Security Audit"></a>
     <a href="Cargo.toml"><img src="https://img.shields.io/badge/MSRV-1.88-orange.svg" alt="MSRV 1.88"></a>
@@ -51,10 +53,18 @@ profiles.
 
 ## Quick start
 
+```sh
+cargo add stoolap-jemalloc
+```
+
+Or in `Cargo.toml`:
+
 ```toml
 [dependencies]
-stoolap-jemalloc = { git = "https://github.com/stoolap/stoolap-jemalloc" }
+stoolap-jemalloc = "0.1"
 ```
+
+Then install it as the global allocator:
 
 ```rust
 use stoolap_jemalloc::Jemalloc;
