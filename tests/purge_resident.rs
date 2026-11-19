@@ -32,8 +32,15 @@ fn resident() -> usize {
         assert_eq!(rc, 0);
         info.ri_resident_size as usize
     }
+    // statm reads per-CPU counters that may lag by tens of MiB on large
+    // machines; smaps_rollup counts the page tables, as proc(5) advises
     #[cfg(all(unix, not(target_vendor = "apple")))]
     {
+        if let Ok(rollup) = std::fs::read_to_string("/proc/self/smaps_rollup") {
+            let line = rollup.lines().find(|l| l.starts_with("Rss:")).unwrap();
+            let kib: usize = line.split_whitespace().nth(1).unwrap().parse().unwrap();
+            return kib << 10;
+        }
         let statm = std::fs::read_to_string("/proc/self/statm").unwrap();
         let pages: usize = statm.split_whitespace().nth(1).unwrap().parse().unwrap();
         pages * unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize
