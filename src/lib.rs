@@ -112,6 +112,15 @@ unsafe impl GlobalAlloc for Jemalloc {
     }
 }
 
+/// Ends a decay epoch when one is due: pages left free for a whole epoch
+/// go back to the OS, and spare chunks and cached huge mappings unused as
+/// long are unmapped. Cheap when none is due. Decay otherwise runs only as
+/// threads allocate, so a program that pauses calls this from a thread it
+/// already has, in place of the background thread
+pub fn decay() {
+    unsafe { arena::decay_tick() }
+}
+
 /// Returns the calling thread's cached objects, then every free page and
 /// cached huge mapping, to the OS
 pub fn purge() {
