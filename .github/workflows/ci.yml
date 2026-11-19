@@ -125,11 +125,12 @@ jobs:
     - uses: actions/checkout@v5
 
     # A 32-bit toolchain, so that the libraries the tests build with rustc
-    # can be loaded by the 32-bit test processes
+    # can be loaded by the 32-bit test processes. Pinned: the 1.100 image's
+    # cargo panics in curl while updating the index, before any build
     - name: Run tests in a 32-bit container
       run: |
         docker run --rm --platform linux/386 -v "$PWD":/work -w /work \
-          i386/rust:latest bash -c "cargo test --release && cargo test"
+          i386/rust:1.99 bash -c "cargo test --release && cargo test"
 
   miri:
     name: Miri
