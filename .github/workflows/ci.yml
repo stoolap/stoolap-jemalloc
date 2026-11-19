@@ -125,10 +125,13 @@ jobs:
     - uses: actions/checkout@v5
 
     # A 32-bit toolchain, so that the libraries the tests build with rustc
-    # can be loaded by the 32-bit test processes
+    # can be loaded by the 32-bit test processes. The runner's seccomp
+    # profile answers system calls of 32-bit processes with ENOSYS: curl
+    # could not start and cargo could not spawn rustc
     - name: Run tests in a 32-bit container
       run: |
-        docker run --rm --platform linux/386 -v "$PWD":/work -w /work \
+        docker run --rm --platform linux/386 --security-opt seccomp=unconfined \
+          -v "$PWD":/work -w /work \
           i386/rust:latest bash -c "cargo test --release && cargo test"
 
   miri:

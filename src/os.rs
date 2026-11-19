@@ -131,12 +131,27 @@ mod sys {
         libc::munmap(p.cast(), size);
     }
 
+    /// On macOS madvise leaves the pages resident until memory runs short,
+    /// so a fresh demand-zero mapping is laid over them instead, as
+    /// jemalloc's forced purge does there
+    #[cfg(target_vendor = "apple")]
     pub unsafe fn purge(p: *mut u8, size: usize) {
-        #[cfg(target_vendor = "apple")]
-        let advice = libc::MADV_FREE;
-        #[cfg(not(target_vendor = "apple"))]
-        let advice = libc::MADV_DONTNEED;
-        libc::madvise(p.cast(), size, advice);
+        let q = libc::mmap(
+            p.cast(),
+            size,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_PRIVATE | libc::MAP_ANON | libc::MAP_FIXED,
+            -1,
+            0,
+        );
+        if q == libc::MAP_FAILED {
+            libc::madvise(p.cast(), size, libc::MADV_FREE);
+        }
+    }
+
+    #[cfg(not(target_vendor = "apple"))]
+    pub unsafe fn purge(p: *mut u8, size: usize) {
+        libc::madvise(p.cast(), size, libc::MADV_DONTNEED);
     }
 }
 
@@ -146,7 +161,7 @@ mod sys {
     use core::ptr::null_mut;
     use windows_sys::Win32::System::Memory::{
         MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, MEM_RESET, PAGE_NOACCESS, PAGE_READWRITE,
-        VirtualAlloc, VirtualFree,
+        VirtualAlloc, VirtualFree, VirtualUnlock,
     };
     use windows_sys::Win32::System::SystemInformation::{GetSystemInfo, SYSTEM_INFO};
 
@@ -206,8 +221,12 @@ mod sys {
         VirtualFree(p.cast(), 0, MEM_RELEASE);
     }
 
+    /// A reset leaves the pages in the working set until memory runs
+    /// short; unlocking pages that are not locked takes them out at once
     pub unsafe fn purge(p: *mut u8, size: usize) {
-        VirtualAlloc(p.cast(), size, MEM_RESET, PAGE_READWRITE);
+        if !VirtualAlloc(p.cast(), size, MEM_RESET, PAGE_READWRITE).is_null() {
+            VirtualUnlock(p.cast(), size);
+        }
     }
 }
 

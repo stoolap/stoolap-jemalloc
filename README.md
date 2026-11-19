@@ -212,6 +212,18 @@ threads on its own surprises sandboxes and programs that count or fork
 their threads. `background::is_running()` tells whether it runs. A child
 process after `fork` has no such thread and may start its own.
 
+A program that already has a thread waking up on its own, such as a
+maintenance loop, can do the same work there instead:
+
+```rust
+stoolap_jemalloc::decay(); // ends a decay epoch when one is due
+```
+
+Called often, it costs a clock read until an epoch is due, every 5
+seconds. In a database engine whose maintenance loop calls it, the
+resident memory of an idle process fell from 950 to 620 MB on macOS and
+from 861 to 588 MB on Linux, after a burst of writes.
+
 ## Platforms
 
 All of these run the test suite, in release and debug builds:
@@ -223,6 +235,7 @@ All of these run the test suite, in release and debug builds:
 | Linux, aarch64        | Locally, in Docker           |
 | macOS, Apple silicon  | CI and locally               |
 | Windows, x86_64       | CI                           |
+| Windows, aarch64      | Locally, in a VM             |
 
 ## Design
 
@@ -271,9 +284,12 @@ A stack of a small class holds up to 200 objects or 16 KiB, and at least
 
 ### Returning memory to the OS
 
-- **Decay.** Pages that stay free for 5–10 seconds go back to the OS:
-  `MADV_DONTNEED` on Linux, `MADV_FREE` on macOS and `MEM_RESET` on
-  Windows. Every arena is covered, including those whose threads have
+- **Decay.** Pages that stay free for 5–10 seconds go back to the OS and
+  leave the resident set at once: `MADV_DONTNEED` on Linux; on macOS a
+  fresh mapping laid over them, as jemalloc does there, since `MADV_FREE`
+  leaves them resident until memory runs short; on Windows `MEM_RESET`
+  followed by `VirtualUnlock`, which takes them out of the working set.
+  Every arena is covered, including those whose threads have
   exited. Spare chunks are unmapped on the same schedule. Where an OS page
   holds several 4 KiB allocator pages, as the 16 KiB pages of Apple
   silicon do, it goes back once all of them are free.
@@ -416,7 +432,10 @@ The tests cover:
 - forks while other threads allocate, purge and profile, with the
   background thread running; forks during a profile dump; and forks in
   the middle of registering the fork handlers
-- the background thread returning memory of an idle process
+- the background thread returning memory of an idle process, and
+  `decay()` doing so without it
+- purged pages of chunks still in use leaving the resident set, on
+  Linux, macOS and Windows
 - statistics, purging and the expiry of cached huge mappings
 - decay on systems whose OS pages hold several allocator pages
 - the profiler, with every allocation sampled
