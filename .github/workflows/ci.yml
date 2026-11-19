@@ -124,13 +124,19 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
+    # The runner's cargo downloads the dependencies: in the 32-bit container
+    # cargo panics inside curl while updating the index, before any build
+    - name: Fetch dependencies
+      run: cargo fetch
+
     # A 32-bit toolchain, so that the libraries the tests build with rustc
-    # can be loaded by the 32-bit test processes. Pinned: the 1.100 image's
-    # cargo panics in curl while updating the index, before any build
+    # can be loaded by the 32-bit test processes; it builds offline from the
+    # fetched registry
     - name: Run tests in a 32-bit container
       run: |
         docker run --rm --platform linux/386 -v "$PWD":/work -w /work \
-          i386/rust:1.99 bash -c "cargo test --release && cargo test"
+          -v "$HOME/.cargo/registry":/usr/local/cargo/registry \
+          i386/rust:latest bash -c "cargo test --release --offline && cargo test --offline"
 
   miri:
     name: Miri
