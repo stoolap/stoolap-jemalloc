@@ -32,6 +32,10 @@ use std::time::{Duration, Instant};
 /// Freed pages go back to the OS after one to two epochs, and spare
 /// chunks are unmapped after as long
 pub(crate) const DECAY_EPOCH: Duration = Duration::from_secs(5);
+
+/// Dirty pages an arena may gain within an epoch before it ends the epoch
+/// at once, so a burst of frees does not wait for the clock
+const DIRTY_CAP_PAGES: usize = (32 << 20) >> PAGE_SHIFT;
 const MAX_ARENAS: usize = 256;
 
 pub struct Arena {
@@ -62,6 +66,10 @@ struct Pages {
     /// are not empty
     free: [*mut Run; FREE_BINS],
     nonempty: [u64; FREE_WORDS],
+    /// Dirty pages of the arena's chunks, and the count above which it
+    /// ends its epoch early
+    dirty: usize,
+    purge_at: usize,
 }
 
 static ARENAS: [AtomicPtr<Arena>; MAX_ARENAS] = [const { AtomicPtr::new(null_mut()) }; MAX_ARENAS];
@@ -91,6 +99,8 @@ unsafe fn create(sampled: bool) -> *mut Arena {
                     chunks: null_mut(),
                     free: [null_mut(); FREE_BINS],
                     nonempty: [0; FREE_WORDS],
+                    dirty: 0,
+                    purge_at: DIRTY_CAP_PAGES,
                 }),
                 bins: [const {
                     Bin(SpinLock::new(BinState {
@@ -189,6 +199,7 @@ impl Arena {
             } else {
                 (*c).arena = self;
                 (*c).head.sampled = u8::from(self.sampled);
+                pages.dirty += ArenaChunk::dirty_pages(c);
                 c
             };
             if c.is_null() {
@@ -207,7 +218,7 @@ impl Arena {
         let c = ArenaChunk::of(run.cast());
         let p = ArenaChunk::run_page(c, run);
         let len = (*run).npages as usize;
-        ArenaChunk::take(c, p, p, n);
+        pages.dirty -= ArenaChunk::take(c, p, p, n);
         if len > n {
             pages.insert_free(c, p + n, len - n);
         }
@@ -334,7 +345,7 @@ impl Arena {
                 return false;
             }
             pages.remove_free(next);
-            ArenaChunk::take(c, p, e, new - old);
+            pages.dirty -= ArenaChunk::take(c, p, e, new - old);
             if len > new - old {
                 pages.insert_free(c, p + new, len - (new - old));
             }
@@ -372,12 +383,9 @@ impl Arena {
         if all || self.threads.load(Ordering::Relaxed) == 0 {
             self.trim();
         }
-        let pages = self.pages.lock();
-        let mut c = pages.chunks;
-        while !c.is_null() {
-            ArenaChunk::decay(c, all);
-            c = (*c).next;
-        }
+        let mut pages = self.pages.lock();
+        pages.decay(all);
+        pages.purge_at = pages.dirty + DIRTY_CAP_PAGES;
     }
 }
 
@@ -395,6 +403,7 @@ impl Pages {
     /// Frees pages `p..p + n`, merged with the free runs on either side
     unsafe fn give_back(&mut self, c: *mut ArenaChunk, p: usize, n: usize) {
         ArenaChunk::give_back(c, p, n);
+        self.dirty += n;
         let (mut start, mut len) = (p, n);
         if p > HEADER_PAGES && ArenaChunk::is_free_page(c, p - 1) {
             start = ArenaChunk::run_start(c, p - 1);
@@ -408,10 +417,37 @@ impl Pages {
             len += (*right).npages as usize;
         }
         self.insert_free(c, start, len);
+        if self.dirty > self.purge_at {
+            self.decay(false);
+            self.purge_at = self.dirty + DIRTY_CAP_PAGES;
+        }
+    }
+
+    /// Ends a decay epoch in every chunk, or purges every dirty page when
+    /// `all` is set, and counts the dirty pages left
+    unsafe fn decay(&mut self, all: bool) {
+        debug_assert_eq!(self.dirty, self.count_dirty(), "dirty pages kept count of");
+        let mut c = self.chunks;
+        while !c.is_null() {
+            ArenaChunk::decay(c, all);
+            c = (*c).next;
+        }
+        self.dirty = self.count_dirty();
+    }
+
+    unsafe fn count_dirty(&self) -> usize {
+        let mut dirty = 0;
+        let mut c = self.chunks;
+        while !c.is_null() {
+            dirty += ArenaChunk::dirty_pages(c);
+            c = (*c).next;
+        }
+        dirty
     }
 
     /// Moves an empty chunk to the spare pool
     unsafe fn retire(&mut self, c: *mut ArenaChunk) {
+        self.dirty -= ArenaChunk::dirty_pages(c);
         self.remove_free(ArenaChunk::run(c, HEADER_PAGES));
         self.unlink(c);
         spare_push(c);

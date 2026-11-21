@@ -293,6 +293,11 @@ A stack of a small class holds up to 200 objects or 16 KiB, and at least
   exited. Spare chunks are unmapped on the same schedule. Where an OS page
   holds several 4 KiB allocator pages, as the 16 KiB pages of Apple
   silicon do, it goes back once all of them are free.
+- **Bursts of frees.** An arena whose free pages grow by 32 MiB within an
+  epoch ends its epoch at once, so a burst keeps at most about 64 MiB per
+  arena resident instead of all of it for 5–10 seconds. Pages taken again
+  in the meantime do not count, so a program that frees and allocates the
+  same memory over and over purges nothing.
 - **Huge mappings.** Freed huge mappings are unmapped, except a few that
   are kept for reuse: up to 64 MiB, for 10 to 15 seconds.
 - **When the OS refuses memory**, the spare chunks and cached huge mappings
@@ -436,6 +441,8 @@ The tests cover:
   `decay()` doing so without it
 - purged pages of chunks still in use leaving the resident set, on
   Linux, macOS and Windows
+- a burst of frees leaving the resident set before the epoch ends, and
+  memory freed and taken again not being purged
 - statistics, purging and the expiry of cached huge mappings
 - decay on systems whose OS pages hold several allocator pages
 - the profiler, with every allocation sampled

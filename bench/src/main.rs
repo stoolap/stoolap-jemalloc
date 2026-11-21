@@ -82,6 +82,22 @@ fn mixed(seed: u64, n: usize) {
     }
 }
 
+/// Live set of large runs, 16 KiB to 768 KiB, with random frees
+fn large_churn(seed: u64, n: usize) {
+    let mut rng = Rng(seed | 1);
+    let mut live: Vec<Vec<u8>> = Vec::with_capacity(256);
+    for _ in 0..n {
+        let r = rng.next();
+        if live.len() < 256 && !r.is_multiple_of(3) {
+            let size = (16 << 10) + (rng.next() % (752 << 10)) as usize;
+            live.push(vec![1u8; size]);
+        } else if !live.is_empty() {
+            let i = (r as usize >> 3) % live.len();
+            live.swap_remove(i);
+        }
+    }
+}
+
 fn strings_tree(n: usize) {
     let mut t = BTreeMap::new();
     for i in 0..n {
@@ -197,6 +213,10 @@ fn main() {
     if want("mixed") {
         run("mixed 1t", || mixed(7, 2_000_000));
         run("mixed Nt", || parallel(|s| mixed(s, 2_000_000)));
+    }
+    if want("large") {
+        run("large_churn 1t", || large_churn(7, 20_000));
+        run("large_churn Nt", || parallel(|s| large_churn(s, 20_000)));
     }
     if want("strings") {
         run("strings_tree 1t", || strings_tree(300_000));
