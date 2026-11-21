@@ -35,7 +35,8 @@
 //! - a thread cache per thread, flushed in batches and trimmed over time
 //! - 4 arenas per CPU; small classes come from slabs, larger ones from page
 //!   runs inside 4 MiB chunks, and those above 1 MiB from their own mappings
-//! - freed pages go back to the OS after 5 to 10 seconds
+//! - freed pages go back to the OS after 5 to 10 seconds, or sooner once
+//!   an arena has 32 MiB more of them than at its last epoch
 //! - heap profiling by sampling, on average once per 512 KiB allocated
 
 mod arena;

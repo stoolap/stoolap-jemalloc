@@ -175,8 +175,10 @@ impl ArenaChunk {
         (*c).free[p / 64] & (1 << (p % 64)) != 0
     }
 
-    /// Marks pages `p..p + n` as in use and points them at run `start`
-    pub unsafe fn take(c: *mut ArenaChunk, start: usize, p: usize, n: usize) {
+    /// Marks pages `p..p + n` as in use and points them at run `start`;
+    /// returns how many of them were dirty
+    pub unsafe fn take(c: *mut ArenaChunk, start: usize, p: usize, n: usize) -> usize {
+        let dirty = count_range(&(*c).dirty_new, &(*c).dirty_old, p, n);
         clear_range(&mut (*c).free, p, n);
         clear_range(&mut (*c).dirty_new, p, n);
         clear_range(&mut (*c).dirty_old, p, n);
@@ -184,6 +186,12 @@ impl ArenaChunk {
         for i in p..p + n {
             Self::set_run_start(c, i, start);
         }
+        dirty
+    }
+
+    /// Free pages that hold memory the OS has not been given back
+    pub unsafe fn dirty_pages(c: *mut ArenaChunk) -> usize {
+        count_range(&(*c).dirty_new, &(*c).dirty_old, 0, PAGES)
     }
 
     /// Marks pages `p..p + n` as free and dirty
@@ -273,6 +281,25 @@ fn update_range(bm: &mut Bitmap, start: usize, n: usize, set: bool) {
         }
         i += cnt;
     }
+}
+
+/// Pages `start..start + n` set in `a` or `b`
+fn count_range(a: &Bitmap, b: &Bitmap, start: usize, n: usize) -> usize {
+    let end = start + n;
+    let mut i = start;
+    let mut count = 0;
+    while i < end {
+        let bit = i % 64;
+        let cnt = (64 - bit).min(end - i);
+        let mask = if cnt == 64 {
+            !0
+        } else {
+            ((1u64 << cnt) - 1) << bit
+        };
+        count += ((a[i / 64] | b[i / 64]) & mask).count_ones() as usize;
+        i += cnt;
+    }
+    count
 }
 
 fn set_range(bm: &mut Bitmap, start: usize, n: usize) {
